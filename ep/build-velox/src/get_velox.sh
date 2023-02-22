@@ -3,7 +3,7 @@
 set -exu
 
 VELOX_REPO=https://github.com/oap-project/velox.git
-VELOX_BRANCH=main
+VELOX_BRANCH=main_rebase_222
 ENABLE_EP_CACHE=OFF
 
 for arg in "$@"
