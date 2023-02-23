@@ -81,7 +81,8 @@ case class GlutenHashAggregateExecTransformer(
   def applyExtractStruct(context: SubstraitContext,
                          aggRel: RelNode,
                          operatorId: Long,
-                         validation: Boolean): RelNode = {
+                         validation: Boolean,
+                         emitStartIndex: Int): RelNode = {
     val expressionNodes = new util.ArrayList[ExpressionNode]()
     var colIdx = 0
     while (colIdx < groupingExpressions.size) {
@@ -119,11 +120,11 @@ case class GlutenHashAggregateExecTransformer(
       }
     }
     if (!validation) {
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId, emitStartIndex)
     } else {
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, getPartialAggOutTypes).toProtobuf))
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId, emitStartIndex)
     }
   }
 
@@ -334,8 +335,9 @@ case class GlutenHashAggregateExecTransformer(
     }
 
     // Create a project rel.
+    val emitStartIndex = originalInputAttributes.size
     val projectRel = if (!validation) {
-      RelBuilder.makeProjectRel(inputRel, exprNodes, context, operatorId)
+      RelBuilder.makeProjectRel(inputRel, exprNodes, context, operatorId, emitStartIndex)
     } else {
       // Use a extension node to send the input types through Substrait plan for validation.
       val inputTypeNodeList = new java.util.ArrayList[TypeNode]()
@@ -344,7 +346,7 @@ case class GlutenHashAggregateExecTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode, context, operatorId)
+      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode, context, operatorId, emitStartIndex)
     }
 
     // Create aggregation rel.
@@ -420,7 +422,7 @@ case class GlutenHashAggregateExecTransformer(
 
     if (extractStructNeeded()) {
       aggParams.extractionNeeded = true
-      aggRel = applyExtractStruct(context, aggRel, operatorId, validation)
+      aggRel = applyExtractStruct(context, aggRel, operatorId, validation, originalInputAttributes.size)
     }
 
     val resRel = if (!needsPostProjection(allAggregateResultAttributes)) {

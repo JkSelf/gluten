@@ -93,7 +93,8 @@ object JoinUtils {
           (selectOrigins ++ appendedKeys.map(_._1)).asJava),
         createExtensionNode(inputNodeOutput, validation),
         substraitContext,
-        operatorId)
+        operatorId,
+        inputNodeOutput.size)
 
       // Compute index for join keys in join outputs.
       val offset = joinOutput.size - inputNodeOutput.size + selectOrigins.size
@@ -259,7 +260,8 @@ object JoinUtils {
         else getDirectJoinOutputSeq(joinType, streamedOutput, buildOutput),
         validation),
       substraitContext,
-      operatorId)
+      operatorId,
+      inputBuildOutput.size + inputBuildOutput.size)
   }
 
   def createTransformContext(exchangeTable: Boolean,
