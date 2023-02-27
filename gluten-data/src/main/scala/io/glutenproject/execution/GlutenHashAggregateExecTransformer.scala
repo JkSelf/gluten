@@ -81,8 +81,7 @@ case class GlutenHashAggregateExecTransformer(
   def applyExtractStruct(context: SubstraitContext,
                          aggRel: RelNode,
                          operatorId: Long,
-                         validation: Boolean,
-                         emitStartIndex: Int): RelNode = {
+                         validation: Boolean): RelNode = {
     val expressionNodes = new util.ArrayList[ExpressionNode]()
     var colIdx = 0
     while (colIdx < groupingExpressions.size) {
@@ -120,11 +119,11 @@ case class GlutenHashAggregateExecTransformer(
       }
     }
     if (!validation) {
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
     } else {
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, getPartialAggOutTypes).toProtobuf))
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
     }
   }
 
@@ -422,7 +421,7 @@ case class GlutenHashAggregateExecTransformer(
 
     if (extractStructNeeded()) {
       aggParams.extractionNeeded = true
-      aggRel = applyExtractStruct(context, aggRel, operatorId, validation, aggRel.groupings.size())
+      aggRel = applyExtractStruct(context, aggRel, operatorId, validation)
     }
 
     val resRel = if (!needsPostProjection(allAggregateResultAttributes)) {

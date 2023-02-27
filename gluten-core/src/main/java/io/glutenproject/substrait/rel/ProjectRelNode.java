@@ -31,7 +31,7 @@ public class ProjectRelNode implements RelNode, Serializable {
   private final ArrayList<ExpressionNode> expressionNodes =
       new ArrayList<>();
   private final AdvancedExtensionNode extensionNode;
-  private final int emitStartIndex = -1;
+  private final int emitStartIndex;
 
   ProjectRelNode(RelNode input,
                  ArrayList<ExpressionNode> expressionNodes,
@@ -62,8 +62,8 @@ public class ProjectRelNode implements RelNode, Serializable {
       for (int i = 0; i < expressionNodes.size(); i++) {
         emitBuilder.addOutputMapping(i + emitStartIndex);
       }
-      relCommonBuilder.setEmit(emitBuilder.build());  
-    } 
+      relCommonBuilder.setEmit(emitBuilder.build());
+    }
     ProjectRel.Builder projectBuilder = ProjectRel.newBuilder();
     projectBuilder.setCommon(relCommonBuilder.build());
     if (input != null) {

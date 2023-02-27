@@ -65,7 +65,7 @@ public class RelBuilder {
                                        SubstraitContext context,
                                        Long operatorId) {
     context.registerRelToOperator(operatorId);
-    return new ProjectRelNode(input, expressionNodes, 0);
+    return new ProjectRelNode(input, expressionNodes, -1);
   }
 
   public static RelNode makeProjectRel(RelNode input,
