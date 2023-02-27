@@ -422,7 +422,7 @@ case class GlutenHashAggregateExecTransformer(
 
     if (extractStructNeeded()) {
       aggParams.extractionNeeded = true
-      aggRel = applyExtractStruct(context, aggRel, operatorId, validation, originalInputAttributes.size)
+      aggRel = applyExtractStruct(context, aggRel, operatorId, validation, aggRel.groupings.size())
     }
 
     val resRel = if (!needsPostProjection(allAggregateResultAttributes)) {

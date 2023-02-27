@@ -31,7 +31,7 @@ public class ProjectRelNode implements RelNode, Serializable {
   private final ArrayList<ExpressionNode> expressionNodes =
       new ArrayList<>();
   private final AdvancedExtensionNode extensionNode;
-  private final int emitStartIndex;
+  private final int emitStartIndex = -1;
 
   ProjectRelNode(RelNode input,
                  ArrayList<ExpressionNode> expressionNodes,
@@ -55,12 +55,15 @@ public class ProjectRelNode implements RelNode, Serializable {
   @Override
   public Rel toProtobuf() {
     RelCommon.Builder relCommonBuilder = RelCommon.newBuilder();
-    // relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
-    RelCommon.Emit.Builder emitBuilder = RelCommon.Emit.newBuilder();
-    for (int i = 0; i < expressionNodes.size(); i++) {
-      emitBuilder.addOutputMapping(i + emitStartIndex);
-    }
-    relCommonBuilder.setEmit(emitBuilder.build());
+    if (emitStartIndex == -1) {
+      relCommonBuilder.setDirect(RelCommon.Direct.newBuilder());
+    } else {
+      RelCommon.Emit.Builder emitBuilder = RelCommon.Emit.newBuilder();
+      for (int i = 0; i < expressionNodes.size(); i++) {
+        emitBuilder.addOutputMapping(i + emitStartIndex);
+      }
+      relCommonBuilder.setEmit(emitBuilder.build());  
+    } 
     ProjectRel.Builder projectBuilder = ProjectRel.newBuilder();
     projectBuilder.setCommon(relCommonBuilder.build());
     if (input != null) {

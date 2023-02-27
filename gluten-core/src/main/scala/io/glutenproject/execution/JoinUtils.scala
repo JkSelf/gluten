@@ -261,7 +261,7 @@ object JoinUtils {
         validation),
       substraitContext,
       operatorId,
-      inputBuildOutput.size + inputBuildOutput.size)
+      streamedOutput.size + buildOutput.size)
   }
 
   def createTransformContext(exchangeTable: Boolean,
