@@ -26,7 +26,7 @@ import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.extensions.{AdvancedExtensionNode, ExtensionBuilder}
 import io.substrait.proto.JoinRel
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
-import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, Inner, JoinType, LeftExistence, LeftOuter, RightOuter, LeftAnti, LeftSemi}
+import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftExistence, LeftOuter, RightOuter}
 import org.apache.spark.sql.types.DataType
 
 import java.util
