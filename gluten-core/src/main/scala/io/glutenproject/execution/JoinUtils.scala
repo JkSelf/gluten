@@ -224,7 +224,7 @@ object JoinUtils {
       operatorId)
 
     // Result projection will drop the appended keys, and exchange columns order if BuildLeft.
-    val (resultProjection, emitIndex) = if (exchangeTable) {
+    val resultProjection = if (exchangeTable) {
       val (leftOutput, rightOutput) =
         getDirectJoinOutput(joinType, inputBuildOutput, inputStreamedOutput)
       joinType match {
