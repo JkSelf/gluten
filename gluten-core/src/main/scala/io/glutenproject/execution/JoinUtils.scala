@@ -26,7 +26,7 @@ import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.extensions.{AdvancedExtensionNode, ExtensionBuilder}
 import io.substrait.proto.JoinRel
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeReference, Expression}
-import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, JoinType, LeftExistence, LeftOuter, RightOuter}
+import org.apache.spark.sql.catalyst.plans.{ExistenceJoin, FullOuter, InnerLike, Inner, JoinType, LeftExistence, LeftOuter, RightOuter, LeftAnti, LeftSemi}
 import org.apache.spark.sql.types.DataType
 
 import java.util
@@ -224,7 +224,7 @@ object JoinUtils {
       operatorId)
 
     // Result projection will drop the appended keys, and exchange columns order if BuildLeft.
-    val resultProjection = if (exchangeTable) {
+    val (resultProjection, emitIndex) = if (exchangeTable) {
       val (leftOutput, rightOutput) =
         getDirectJoinOutput(joinType, inputBuildOutput, inputStreamedOutput)
       joinType match {
@@ -252,16 +252,20 @@ object JoinUtils {
       }
     }
 
+    val directJoinOutputs = if (exchangeTable) {
+        getDirectJoinOutputSeq(joinType, buildOutput, streamedOutput)
+    } else {
+        getDirectJoinOutputSeq(joinType, streamedOutput, buildOutput)
+    }
     RelBuilder.makeProjectRel(
       joinRel,
       new java.util.ArrayList[ExpressionNode](resultProjection.asJava),
       createExtensionNode(
-        if (exchangeTable) getDirectJoinOutputSeq(joinType, buildOutput, streamedOutput)
-        else getDirectJoinOutputSeq(joinType, streamedOutput, buildOutput),
+        directJoinOutputs,
         validation),
       substraitContext,
       operatorId,
-      streamedOutput.size + buildOutput.size)
+      directJoinOutputs.size)
   }
 
   def createTransformContext(exchangeTable: Boolean,

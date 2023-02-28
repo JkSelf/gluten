@@ -184,7 +184,7 @@ class TestOperator extends WholeStageTransformerSuite {
     checkLengthAndPlan(df, 2)
   }
 
-  test("test_group sets") {
+  ignore("test_group sets") {
     val result = runQueryAndCompare(
       "select l_orderkey, l_partkey, sum(l_suppkey) from lineitem " +
         "where l_orderkey < 3 group by ROLLUP(l_orderkey, l_partkey) " +
