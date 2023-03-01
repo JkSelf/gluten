@@ -18,11 +18,11 @@
 package io.glutenproject.execution
 
 import com.google.common.collect.Lists
-import com.google.protobuf.Any
+import com.google.protobuf.{Any, StringValue}
 import io.glutenproject.GlutenConfig
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.expression._
-import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
+import io.glutenproject.substrait.`type`.{DecimalTypeNode, TypeBuilder, TypeNode}
 import io.glutenproject.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode}
 import io.glutenproject.substrait.extensions.ExtensionBuilder
 import io.glutenproject.substrait.plan.PlanBuilder
@@ -462,6 +462,7 @@ abstract class HashAggregateExecBaseTransformer(
     }
 
     // Create Aggregation functions.
+    val childrenTypeNodeList = new util.ArrayList[TypeNode]()
     val aggFilterList = new util.ArrayList[ExpressionNode]()
     val aggregateFunctionList = new util.ArrayList[AggregateFunctionNode]()
     aggregateExpressions.foreach(aggExpr => {
@@ -481,13 +482,54 @@ abstract class HashAggregateExecBaseTransformer(
       for (node <- childrenNodes) {
         childrenNodeList.add(node)
       }
+
+      aggregateFunc.children.foreach { expr =>
+        expr match {
+          case UnscaledValue(child: Expression) =>
+            val typeNode = ConverterUtils.getTypeNode(child.dataType, child.nullable)
+            childrenTypeNodeList.add(typeNode)
+          case _ =>
+            val typeNode = ConverterUtils.getTypeNode(expr.dataType, expr.nullable)
+            childrenTypeNodeList.add(typeNode)
+        }
+      }
+
       addFunctionNode(context.registeredFunction, aggregateFunc, childrenNodeList,
         aggExpr.mode, aggregateFunctionList)
     })
 
-    RelBuilder.makeAggregateRel(
-      inputRel, groupingList, aggregateFunctionList,
-      aggFilterList, context, operatorId)
+    var result = ""
+    childrenTypeNodeList.forEach { childrenNode =>
+      childrenNode match {
+        case dec: DecimalTypeNode =>
+          result += "<" + dec.getPrecision() + "," + dec.getScale() + ">"
+        case _ =>
+      }
+    }
+
+    if (result != "") {
+      val message = StringValue
+        .newBuilder()
+        .setValue(result)
+        .build()
+      val precisionsBuilder = Any.newBuilder
+        .setValue(message.toByteString)
+        .setTypeUrl("/google.protobuf.StringValue")
+
+
+      val extensionNode = ExtensionBuilder.makeAdvancedExtension(
+        precisionsBuilder.build(),
+        Any.pack(TypeBuilder.makeStruct(false, childrenTypeNodeList).toProtobuf))
+
+      RelBuilder.makeAggregateRel(
+        inputRel, groupingList, aggregateFunctionList,
+        aggFilterList, extensionNode, context, operatorId)
+    } else {
+      RelBuilder.makeAggregateRel(
+        inputRel, groupingList, aggregateFunctionList,
+        aggFilterList, context, operatorId)
+    }
+
   }
 
   protected def addFunctionNode(args: java.lang.Object,
@@ -700,6 +742,7 @@ abstract class HashAggregateExecBaseTransformer(
     // Get the aggregate function nodes.
     val aggFilterList = new util.ArrayList[ExpressionNode]()
     val aggregateFunctionList = new util.ArrayList[AggregateFunctionNode]()
+    val childrenTypeNodeList = new util.ArrayList[TypeNode]()
     aggregateExpressions.foreach(aggExpr => {
       if (aggExpr.filter.isDefined) {
         val exprNode = ExpressionConverter
@@ -708,6 +751,18 @@ abstract class HashAggregateExecBaseTransformer(
       }
       val aggregateFunc = aggExpr.aggregateFunction
       val childrenNodeList = new util.ArrayList[ExpressionNode]()
+
+      aggregateFunc.children.foreach { expr =>
+        expr match {
+          case UnscaledValue(child: Expression) =>
+            val typeNode = ConverterUtils.getTypeNode(child.dataType, child.nullable)
+            childrenTypeNodeList.add(typeNode)
+          case _ =>
+            val typeNode = ConverterUtils.getTypeNode(expr.dataType, expr.nullable)
+            childrenTypeNodeList.add(typeNode)
+        }
+      }
+
       val childrenNodes = aggExpr.mode match {
         case Partial =>
           aggregateFunc.children.toList.map(expr => {
@@ -738,11 +793,36 @@ abstract class HashAggregateExecBaseTransformer(
       for (attr <- originalInputAttributes) {
         inputTypeNodeList.add(ConverterUtils.getTypeNode(attr.dataType, attr.nullable))
       }
-      val extensionNode = ExtensionBuilder.makeAdvancedExtension(
-        Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeAggregateRel(
-        input, groupingList, aggregateFunctionList, aggFilterList,
-        extensionNode, context, operatorId)
+
+      var result = ""
+      childrenTypeNodeList.forEach { childrenNode =>
+        childrenNode match {
+          case dec: DecimalTypeNode =>
+            result += "<" + dec.getPrecision() + "," + dec.getScale() + ">"
+          case _ =>
+        }
+      }
+
+      if (result != "") {
+        val message = StringValue
+          .newBuilder()
+          .setValue(result)
+          .build()
+        val precisionsBuilder = Any.newBuilder
+          .setValue(message.toByteString)
+          .setTypeUrl("/google.protobuf.StringValue")
+
+        val extensionNode = ExtensionBuilder.makeAdvancedExtension(
+          precisionsBuilder.build(),
+          Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
+        RelBuilder.makeAggregateRel(
+          input, groupingList, aggregateFunctionList, aggFilterList,
+          extensionNode, context, operatorId)
+      } else {
+        RelBuilder.makeAggregateRel(
+          input, groupingList, aggregateFunctionList, aggFilterList, context, operatorId)
+      }
+
     }
   }
 
