@@ -135,10 +135,17 @@ case class GlutenHashAggregateExecTransformer(
   private def getIntermediateTypeNode(aggregateFunction: AggregateFunction): TypeNode = {
     val structTypeNodes = new util.ArrayList[TypeNode]()
     aggregateFunction match {
-      case _: Average =>
-        // Use struct type to represent Velox Row(DOUBLE, BIGINT).
-        structTypeNodes.add(ConverterUtils.getTypeNode(DoubleType, nullable = true))
-        structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
+      case avg: Average =>
+        avg.dataType match {
+          case _: DecimalType =>
+            // Use struct type to represent Velox Row(DECIMAL, BIGINT).
+            structTypeNodes.add(ConverterUtils.getTypeNode(avg.dataType, nullable = true))
+            structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
+          case _ =>
+            // Use struct type to represent Velox Row(DOUBLE, BIGINT).
+            structTypeNodes.add(ConverterUtils.getTypeNode(DoubleType, nullable = true))
+            structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
+        }
       case _: StddevSamp | _: StddevPop | _: VarianceSamp | _: VariancePop =>
         // Use struct type to represent Velox Row(BIGINT, DOUBLE, DOUBLE).
         structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
