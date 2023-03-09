@@ -25,14 +25,14 @@ import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
 import io.glutenproject.substrait.extensions.ExtensionBuilder
 import io.glutenproject.substrait.rel.{RelBuilder, RelNode}
-import java.util
 
+import java.util
 import io.glutenproject.substrait.{AggregationParams, SubstraitContext}
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DoubleType, LongType}
+import org.apache.spark.sql.types.{DecimalType, DoubleType, LongType}
 
 case class GlutenHashAggregateExecTransformer(
     requiredChildDistributionExpressions: Option[Seq[Expression]],
