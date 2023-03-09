@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DecimalType, DoubleType, LongType}
+import org.apache.spark.sql.types.{DoubleType, LongType}
 
 case class GlutenHashAggregateExecTransformer(
     requiredChildDistributionExpressions: Option[Seq[Expression]],
@@ -141,7 +141,7 @@ case class GlutenHashAggregateExecTransformer(
       case avg: Average =>
         structTypeNodes.add(ConverterUtils.getTypeNode(
           avg.dataType match {
-            case _@GlutenDecimalUtil.Fixed(p, s) => GlutenDecimalUtil.bounded(p + 10, s)
+            case _ @ GlutenDecimalUtil.Fixed(p, s) => GlutenDecimalUtil.bounded(p + 10, s)
             case _ => DoubleType
           }, nullable = true))
         structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
