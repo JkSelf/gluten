@@ -323,6 +323,9 @@ object ExpressionConverter extends Logging {
       case mapValues: MapValues =>
         new UnaryArgumentCollectionOperationTransformer(substraitExprName,
           replaceWithExpressionTransformer(mapValues.child, attributeSeq), mapValues)
+      case unscaled: UnscaledValue =>
+        new UnscaledValueTransformer(substraitExprName,
+          replaceWithExpressionTransformer(unscaled.child, attributeSeq), unscaled)
       case expr =>
         logWarning(s"${expr.getClass} or ${expr} is not currently supported.")
         throw new UnsupportedOperationException(
