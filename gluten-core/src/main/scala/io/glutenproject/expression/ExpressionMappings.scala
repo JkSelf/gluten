@@ -213,6 +213,9 @@ object ExpressionMappings {
   final val CUME_DIST = "cume_dist"
   final val PERCENT_RANK = "percent_rank"
 
+  // Decimal functions
+  final val UNSCALED_VALUE = "unscaled_value"
+
   /**
    * Mapping Spark scalar expression to Substrait function name
    */
@@ -373,7 +376,9 @@ object ExpressionMappings {
     Sig[InSet](IN_SET),
     Sig[ScalarSubquery](SCALAR_SUBQUERY),
     Sig[CheckOverflow](CHECK_OVERFLOW),
-    Sig[PromotePrecision](PROMOTE_PRECISION)
+    Sig[PromotePrecision](PROMOTE_PRECISION),
+    // Decimal
+    Sig[UnscaledValue](UNSCALED_VALUE)
   ) ++ SparkShimLoader.getSparkShims.expressionMappings
 
   /**
