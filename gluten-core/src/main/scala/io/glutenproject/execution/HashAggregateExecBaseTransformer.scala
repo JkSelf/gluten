@@ -337,8 +337,10 @@ abstract class HashAggregateExecBaseTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
+
       RelBuilder.makeProjectRel(
         input, preExprNodes, extensionNode, context, operatorId, emitStartIndex)
+
     }
 
     // Handle the pure Aggregate after Projection. Both grouping and Aggregate expressions are
@@ -427,6 +429,7 @@ abstract class HashAggregateExecBaseTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
+
       RelBuilder.makeProjectRel(
         aggRel, resExprNodes, extensionNode, context, operatorId, emitStartIndex)
     }
