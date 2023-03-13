@@ -453,7 +453,8 @@ abstract class HashAggregateExecBaseTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(input, preExprNodes, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(input, preExprNodes, extensionNode,
+        context, operatorId, emitStartIndex)
     }
 
     // Handle the pure Aggregate after Projection. Both grouping and Aggregate expressions are
@@ -542,7 +543,8 @@ abstract class HashAggregateExecBaseTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(aggRel, resExprNodes, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(aggRel, resExprNodes, extensionNode,
+        context, operatorId, emitStartIndex)
     }
   }
 
@@ -670,7 +672,7 @@ abstract class HashAggregateExecBaseTransformer(
           }
         case CollectList(_, _, _) =>
           mode match {
-            case Partial => 
+            case Partial =>
               val collectList = aggregateFunc.asInstanceOf[CollectList]
               val aggBufferAttr = collectList.inputAggBufferAttributes
               for (index <- aggBufferAttr.indices) {
@@ -678,7 +680,7 @@ abstract class HashAggregateExecBaseTransformer(
                 aggregateAttr += attr
               }
               res_index += aggBufferAttr.size
-            case Final => 
+            case Final =>
               aggregateAttr += aggregateAttributeList(res_index)
               res_index += 1
             case other =>
