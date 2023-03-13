@@ -26,8 +26,8 @@ import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
 import io.glutenproject.substrait.extensions.ExtensionBuilder
 import io.glutenproject.substrait.rel.{RelBuilder, RelNode}
-
 import java.util
+
 import io.glutenproject.substrait.{AggregationParams, SubstraitContext}
 import io.glutenproject.utils.GlutenDecimalUtil
 
@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{DoubleType, LongType}
+import org.apache.spark.sql.types.{DecimalType, DoubleType, LongType}
 
 case class GlutenHashAggregateExecTransformer(
     requiredChildDistributionExpressions: Option[Seq[Expression]],
@@ -122,11 +122,13 @@ case class GlutenHashAggregateExecTransformer(
       }
     }
     if (!validation) {
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId,
+        groupingExpressions.size + aggregateExpressions.size)
     } else {
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, getPartialAggOutTypes).toProtobuf))
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId,
+        groupingExpressions.size + aggregateExpressions.size)
     }
   }
 
@@ -175,11 +177,23 @@ case class GlutenHashAggregateExecTransformer(
               getIntermediateTypeNode(aggregateFunction))
             aggregateNodeList.add(partialNode)
           case Final =>
+            val dataType = aggregateFunction match {
+              case avg: Average =>
+                avg.dataType match {
+                  case _ @ GlutenDecimalUtil.Fixed(p, s) =>
+                    // avg.dataType is Decimal(p + 4, s + 4) and sumType is Decimal(p + 10, s)
+                    // we need to get sumType, so p = p - 4 + 10 and s = s - 4
+                    GlutenDecimalUtil.bounded(p - 4 + 10, s - 4)
+                  case _ => DoubleType
+                }
+              case _ =>
+                aggregateFunction.dataType
+            }
             val aggFunctionNode = ExpressionBuilder.makeAggregateFunction(
               AggregateFunctionsBuilder.create(args, aggregateFunction),
               childrenNodeList,
               modeToKeyWord(aggregateMode),
-              ConverterUtils.getTypeNode(aggregateFunction.dataType, aggregateFunction.nullable))
+              ConverterUtils.getTypeNode(dataType, aggregateFunction.nullable))
             aggregateNodeList.add(aggFunctionNode)
           case other =>
             throw new UnsupportedOperationException(s"$other is not supported.")
@@ -351,7 +365,8 @@ case class GlutenHashAggregateExecTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode,
+        context, operatorId, emitStartIndex)
     }
 
     // Create aggregation rel.
