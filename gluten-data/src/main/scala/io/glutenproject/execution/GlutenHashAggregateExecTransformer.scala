@@ -17,17 +17,17 @@
 
 package io.glutenproject.execution
 
+import java.util
+
 import scala.collection.JavaConverters._
 
 import com.google.protobuf.Any
-import io.glutenproject.expression._
 import io.glutenproject.expression.ConverterUtils.FunctionConfig
+import io.glutenproject.expression._
 import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.expression.{AggregateFunctionNode, ExpressionBuilder, ExpressionNode, ScalarFunctionNode}
 import io.glutenproject.substrait.extensions.ExtensionBuilder
 import io.glutenproject.substrait.rel.{RelBuilder, RelNode}
-
-import java.util
 import io.glutenproject.substrait.{AggregationParams, SubstraitContext}
 import io.glutenproject.utils.GlutenDecimalUtil
 
@@ -122,11 +122,13 @@ case class GlutenHashAggregateExecTransformer(
       }
     }
     if (!validation) {
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, context, operatorId,
+        groupingExpressions.size + aggregateExpressions.size)
     } else {
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, getPartialAggOutTypes).toProtobuf))
-      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId, groupingExpressions.size + aggregateExpressions.size)
+      RelBuilder.makeProjectRel(aggRel, expressionNodes, extensionNode, context, operatorId,
+        groupingExpressions.size + aggregateExpressions.size)
     }
   }
 
@@ -351,7 +353,8 @@ case class GlutenHashAggregateExecTransformer(
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(inputRel, exprNodes, extensionNode,
+        context, operatorId, emitStartIndex)
     }
 
     // Create aggregation rel.

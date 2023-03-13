@@ -20,20 +20,31 @@ package io.glutenproject.expression
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.expression.ConverterUtils.FunctionConfig
 import io.glutenproject.substrait.expression.ExpressionBuilder
+
 import org.apache.spark.sql.catalyst.expressions.aggregate._
+import org.apache.spark.sql.types.DecimalType
 
 object AggregateFunctionsBuilder {
 
   def create(args: java.lang.Object, aggregateFunc: AggregateFunction): Long = {
     val functionMap = args.asInstanceOf[java.util.HashMap[String, java.lang.Long]]
 
-    val substraitAggFuncName =
-      ExpressionMappings.aggregate_functions_map.getOrElse(aggregateFunc.getClass,
-        ExpressionMappings.getAggSigOther(aggregateFunc.prettyName))
+    val aggFuncName = ExpressionMappings.aggregate_functions_map.getOrElse(aggregateFunc.getClass,
+      ExpressionMappings.getAggSigOther(aggregateFunc.prettyName))
+
+    val prefix = aggregateFunc match {
+      case avg: Average if avg.dataType.isInstanceOf[DecimalType] =>
+        val out = "dec_"
+        out
+      case _ =>
+        ""
+    }
     // Check whether Gluten supports this aggregate function
-    if (substraitAggFuncName.isEmpty) {
+    if (aggFuncName.isEmpty) {
       throw new UnsupportedOperationException(s"not currently supported: $aggregateFunc.")
     }
+
+    val substraitAggFuncName = prefix + aggFuncName
     // Check whether each backend supports this aggregate function
     if (!BackendsApiManager.getValidatorApiInstance.doAggregateFunctionValidate(
       substraitAggFuncName, aggregateFunc )) {
