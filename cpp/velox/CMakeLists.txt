@@ -175,6 +175,7 @@ set(VELOX_SRCS
     )
 add_library(velox SHARED ${VELOX_SRCS})
 
+#set_source_files_properties(compute/VeloxColumnarToRowConverter.cc PROPERTIES COMPILE_FLAGS "-mbmi2 -mbmi")
 set_source_files_properties(compute/VeloxColumnarToRowConverter.cc PROPERTIES COMPILE_FLAGS "-mbmi2 -mbmi -march=native")
 
 

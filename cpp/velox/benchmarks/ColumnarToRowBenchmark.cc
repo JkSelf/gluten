@@ -105,6 +105,10 @@ class GoogleBenchmarkColumnarToRow {
   std::shared_ptr<arrow::Schema> schema;
   parquet::ArrowReaderProperties properties;
 };
+
+std::shared_ptr<gluten::ArrowColumnarToRowConverter> arrow_converter;
+std::shared_ptr<gluten::VeloxColumnarToRowConverter> velox_converter;
+
 class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkColumnarToRow {
  public:
   GoogleBenchmarkColumnarToRow_CacheScan_Benchmark(std::string filename) : GoogleBenchmarkColumnarToRow(filename) {}
@@ -123,38 +127,39 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     int64_t write_time = 0;
     int64_t convert_time = 0;
 
-          std::vector<int> local_column_indices;
-          local_column_indices.push_back(15);
-          local_column_indices.push_back(14);
-          local_column_indices.push_back(13);
-          /*local_column_indices.push_back(1);
-          local_column_indices.push_back(2);
-          local_column_indices.push_back(4);
-          local_column_indices.push_back(5);
-          local_column_indices.push_back(6);
-          local_column_indices.push_back(7);
-    */
-    //std::vector<int> local_column_indices = column_indices;
+    std::vector<int> local_column_indices;
+    local_column_indices.push_back(15);
+    local_column_indices.push_back(14);
+    // local_column_indices.push_back(13);
+    /*local_column_indices.push_back(1);
+    local_column_indices.push_back(2);
+    local_column_indices.push_back(4);
+    local_column_indices.push_back(5);
+    local_column_indices.push_back(6);
+    local_column_indices.push_back(7);
+*/
+    // std::vector<int> local_column_indices = column_indices;
 
     std::shared_ptr<arrow::Schema> local_schema;
     local_schema = std::make_shared<arrow::Schema>(*schema.get());
 
     //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
-//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
-//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
-    
+    //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
+
     if (state.thread_index() == 0)
       std::cout << local_schema->ToString() << std::endl;
 
@@ -185,12 +190,13 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
 
     std::cout << " parquet parse done elapsed time = " << elapse_read / 1000000 << " rows = " << num_rows << std::endl;
 
-    std::for_each(batch_vectors.begin(),batch_vectors.end(),[&vectors,this](const std::shared_ptr<arrow::RecordBatch>& batch){
-      vectors.push_back(recordBatch2RowVector(*batch));
-    });
+    std::for_each(
+        batch_vectors.begin(), batch_vectors.end(), [&vectors, this](const std::shared_ptr<arrow::RecordBatch>& batch) {
+          vectors.push_back(recordBatch2RowVector(*batch));
+        });
     auto t3 = std::chrono::steady_clock::now();
     convert_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
-    
+
     std::cout << " conversion done elapsed time = " << convert_time / 1000000 << " rows = " << num_rows << std::endl;
 
     // reuse the columnarToRowConverter for batches caused system % increase a lot
@@ -203,6 +209,8 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
             std::dynamic_pointer_cast<velox::RowVector>(vector), arrowPool, veloxPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
+        velox_converter = columnarToRowConverter;
+        break;
       }
     }
 
@@ -226,10 +234,10 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
   }
 };
 
-
 class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkColumnarToRow {
  public:
-  GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark(std::string filename) : GoogleBenchmarkColumnarToRow(filename) {}
+  GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark(std::string filename)
+      : GoogleBenchmarkColumnarToRow(filename) {}
   void operator()(benchmark::State& state) {
     if (state.range(0) == 0xffffffff) {
       SetCPU(state.thread_index());
@@ -244,38 +252,39 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     int64_t init_time = 0;
     int64_t write_time = 0;
 
-          std::vector<int> local_column_indices;
-          local_column_indices.push_back(15);
-          local_column_indices.push_back(14);
-          local_column_indices.push_back(13);
-          /*local_column_indices.push_back(1);
-          local_column_indices.push_back(2);
-          local_column_indices.push_back(4);
-          local_column_indices.push_back(5);
-          local_column_indices.push_back(6);
-          local_column_indices.push_back(7);
-    */
-    //std::vector<int> local_column_indices = column_indices;
+    std::vector<int> local_column_indices;
+    local_column_indices.push_back(15);
+    local_column_indices.push_back(14);
+    // local_column_indices.push_back(13);
+    /*local_column_indices.push_back(1);
+    local_column_indices.push_back(2);
+    local_column_indices.push_back(4);
+    local_column_indices.push_back(5);
+    local_column_indices.push_back(6);
+    local_column_indices.push_back(7);
+*/
+    // std::vector<int> local_column_indices = column_indices;
 
     std::shared_ptr<arrow::Schema> local_schema;
     local_schema = std::make_shared<arrow::Schema>(*schema.get());
 
-    //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
-//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
-//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
-    
+    //          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
+    //          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
+
     if (state.thread_index() == 0)
       std::cout << local_schema->ToString() << std::endl;
 
@@ -309,13 +318,27 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     // reuse the columnarToRowConverter for batches caused system % increase a lot
 
     auto arrowPool = GetDefaultWrappedArrowMemoryPool();
-    //auto veloxPool = AsWrappedVeloxMemoryPool(DefaultMemoryAllocator().get());
+    // auto veloxPool = AsWrappedVeloxMemoryPool(DefaultMemoryAllocator().get());
     for (auto _ : state) {
       for (const auto& vector : batch_vectors) {
         auto columnarToRowConverter = std::make_shared<gluten::ArrowColumnarToRowConverter>(
             std::dynamic_pointer_cast<arrow::RecordBatch>(vector), arrowPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
+        arrow_converter = columnarToRowConverter;
+        break;
+      }
+    }
+    auto lengths = velox_converter->GetLengths();
+    auto offsets = velox_converter->GetOffsets();
+    auto veloxcvt = velox_converter->GetBufferAddress();
+    auto arrowcvt = arrow_converter->GetBufferAddress();
+    for (auto r = 0; r < lengths.size(); r++) {
+      for (auto b = 0; b < lengths[r]; b++) {
+        if (veloxcvt[offsets[r] + b] != arrowcvt[offsets[r] + b]) {
+          std::cout << " row " << r << " bytes " << b << " miss match " << std::endl;
+          break;
+        }
       }
     }
 
@@ -338,8 +361,6 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
         benchmark::Counter(write_time, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
   }
 };
-
-
 
 class GoogleBenchmarkColumnarToRow_IterateScan_Benchmark : public GoogleBenchmarkColumnarToRow {
  public:
