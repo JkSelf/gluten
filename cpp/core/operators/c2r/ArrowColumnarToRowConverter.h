@@ -44,8 +44,7 @@ class ArrowColumnarToRowConverter final : public ColumnarToRowConverter {
       int32_t& nullBitsetWidthInBytes,
       std::vector<arrow::Type::type>& typevec,
       std::vector<uint8_t>& typewidth,
-      std::vector<std::shared_ptr<arrow::Array>>& arrays,
-      bool support_avx512);
+      std::vector<std::shared_ptr<arrow::Array>>& arrays);
 
   std::shared_ptr<arrow::RecordBatch> rb_;
 };
