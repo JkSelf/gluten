@@ -35,7 +35,24 @@ class VeloxColumnarToRowConverter final : public ColumnarToRowConverter {
       std::shared_ptr<facebook::velox::memory::MemoryPool> velox_pool)
       : ColumnarToRowConverter(arrow_pool), rv_(rv), velox_pool_(velox_pool) {}
 
+  ~VeloxColumnarToRowConverter() = default;
+
   arrow::Status Init() override;
+
+  arrow::Status FillBuffer(
+      int32_t& row_start,
+      int32_t batch_rows,
+      std::vector<const uint8_t*>& dataptrs,
+      std::vector<uint8_t> nullvec,
+      uint8_t* buffer_address,
+      std::vector<int32_t>& offsets,
+      std::vector<int32_t>& buffer_cursor,
+      int32_t& num_cols,
+      int32_t& num_rows,
+      int32_t& nullBitsetWidthInBytes,
+      std::vector<arrow::Type::type>& typevec,
+      std::vector<uint8_t>& typewidth,
+      std::vector<facebook::velox::VectorPtr>& arrays);
 
   arrow::Status Write() override;
 

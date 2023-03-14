@@ -16,6 +16,7 @@
  */
 
 #include "ArrowColumnarToRowConverter.h"
+#include <iostream>
 
 #include <arrow/array/array_decimal.h>
 #include <arrow/status.h>
@@ -137,10 +138,9 @@ arrow::Status ArrowColumnarToRowConverter::FillBuffer(
     int32_t& nullBitsetWidthInBytes,
     std::vector<arrow::Type::type>& typevec,
     std::vector<uint8_t>& typewidth,
-    std::vector<std::shared_ptr<arrow::Array>>& arrays,
-    bool support_avx512) {
+    std::vector<std::shared_ptr<arrow::Array>>& arrays) {
 #ifdef __AVX512BW__
-  if (ARROW_PREDICT_TRUE(support_avx512)) {
+  if (ARROW_PREDICT_TRUE(support_avx512_)) {
     __m256i fill_0_8x = {0LL};
     fill_0_8x = _mm256_xor_si256(fill_0_8x, fill_0_8x);
     for (auto j = row_start; j < row_start + batch_rows; j++) {
@@ -184,7 +184,7 @@ arrow::Status ArrowColumnarToRowConverter::FillBuffer(
             auto value = &dataptrs[col_index][2][BinaryOffsets[j]];
 
 #ifdef __AVX512BW__
-            if (ARROW_PREDICT_TRUE(support_avx512)) {
+            if (ARROW_PREDICT_TRUE(support_avx512_)) {
               // write the variable value
               offset_type k;
               for (k = 0; k + 32 < length; k += 32) {
@@ -268,7 +268,7 @@ arrow::Status ArrowColumnarToRowConverter::FillBuffer(
             if (nullvec[col_index] || (!array->IsNull(j))) {
               const uint8_t* srcptr = dataptr + (j << shift);
 #ifdef __AVX512BW__
-              if (ARROW_PREDICT_TRUE(support_avx512)) {
+              if (ARROW_PREDICT_TRUE(support_avx512_)) {
                 __m256i v = _mm256_maskz_loadu_epi8(mask, srcptr);
                 _mm256_mask_storeu_epi8(buffer_address_tmp + offsets[j], mask, v);
                 _mm_prefetch(srcptr + 64, _MM_HINT_T0);
@@ -356,8 +356,7 @@ arrow::Status ArrowColumnarToRowConverter::Write() {
         nullBitsetWidthInBytes_,
         typevec,
         typewidth,
-        arrays,
-        support_avx512_));
+        arrays));
   }
 
   for (; i < num_rows_; i++) {
@@ -374,8 +373,7 @@ arrow::Status ArrowColumnarToRowConverter::Write() {
         nullBitsetWidthInBytes_,
         typevec,
         typewidth,
-        arrays,
-        support_avx512_));
+        arrays));
   }
 
   return arrow::Status::OK();

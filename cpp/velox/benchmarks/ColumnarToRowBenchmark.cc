@@ -121,31 +121,40 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     int64_t num_rows = 0;
     int64_t init_time = 0;
     int64_t write_time = 0;
+    int64_t convert_time = 0;
 
-    /*      std::vector<int> local_column_indices;
-          local_column_indices.push_back(0);
-          local_column_indices.push_back(1);
+          std::vector<int> local_column_indices;
+          local_column_indices.push_back(15);
+          local_column_indices.push_back(14);
+          local_column_indices.push_back(13);
+          /*local_column_indices.push_back(1);
           local_column_indices.push_back(2);
           local_column_indices.push_back(4);
           local_column_indices.push_back(5);
           local_column_indices.push_back(6);
           local_column_indices.push_back(7);
     */
-    std::vector<int> local_column_indices = column_indices;
+    //std::vector<int> local_column_indices = column_indices;
 
     std::shared_ptr<arrow::Schema> local_schema;
     local_schema = std::make_shared<arrow::Schema>(*schema.get());
 
-    /*      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
-          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+    //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
+//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
+//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
           ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-      */
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    
     if (state.thread_index() == 0)
       std::cout << local_schema->ToString() << std::endl;
 
@@ -154,19 +163,35 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     ASSERT_NOT_OK(::parquet::arrow::FileReader::Make(
         ::arrow::default_memory_pool(), ::parquet::ParquetFileReader::Open(file), properties, &parquet_reader));
 
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batch_vectors;
     std::vector<velox::VectorPtr> vectors;
     ASSERT_NOT_OK(parquet_reader->GetRecordBatchReader(row_group_indices, local_column_indices, &record_batch_reader));
+
+    auto t1 = std::chrono::steady_clock::now();
     do {
       TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
 
       if (record_batch) {
-        vectors.push_back(recordBatch2RowVector(*record_batch));
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
         num_batches += 1;
         num_rows += record_batch->num_rows();
       }
     } while (record_batch);
+    auto t2 = std::chrono::steady_clock::now();
+    elapse_read = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
 
     std::cout << " parquet parse done elapsed time = " << elapse_read / 1000000 << " rows = " << num_rows << std::endl;
+
+    std::for_each(batch_vectors.begin(),batch_vectors.end(),[&vectors,this](const std::shared_ptr<arrow::RecordBatch>& batch){
+      vectors.push_back(recordBatch2RowVector(*batch));
+    });
+    auto t3 = std::chrono::steady_clock::now();
+    convert_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
+    
+    std::cout << " parquet parse done elapsed time = " << convert_time / 1000000 << " rows = " << num_rows << std::endl;
 
     // reuse the columnarToRowConverter for batches caused system % increase a lot
 
@@ -200,6 +225,121 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
         benchmark::Counter(write_time, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
   }
 };
+
+
+class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkColumnarToRow {
+ public:
+  GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark(std::string filename) : GoogleBenchmarkColumnarToRow(filename) {}
+  void operator()(benchmark::State& state) {
+    if (state.range(0) == 0xffffffff) {
+      SetCPU(state.thread_index());
+    } else {
+      SetCPU(state.range(0));
+    }
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    int64_t elapse_read = 0;
+    int64_t num_batches = 0;
+    int64_t num_rows = 0;
+    int64_t init_time = 0;
+    int64_t write_time = 0;
+
+          std::vector<int> local_column_indices;
+          local_column_indices.push_back(15);
+          local_column_indices.push_back(14);
+          local_column_indices.push_back(13);
+          /*local_column_indices.push_back(1);
+          local_column_indices.push_back(2);
+          local_column_indices.push_back(4);
+          local_column_indices.push_back(5);
+          local_column_indices.push_back(6);
+          local_column_indices.push_back(7);
+    */
+    //std::vector<int> local_column_indices = column_indices;
+
+    std::shared_ptr<arrow::Schema> local_schema;
+    local_schema = std::make_shared<arrow::Schema>(*schema.get());
+
+    //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
+//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
+//          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    
+    if (state.thread_index() == 0)
+      std::cout << local_schema->ToString() << std::endl;
+
+    std::unique_ptr<::parquet::arrow::FileReader> parquet_reader;
+    std::shared_ptr<RecordBatchReader> record_batch_reader;
+    ASSERT_NOT_OK(::parquet::arrow::FileReader::Make(
+        ::arrow::default_memory_pool(), ::parquet::ParquetFileReader::Open(file), properties, &parquet_reader));
+
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batch_vectors;
+    std::vector<velox::VectorPtr> vectors;
+    ASSERT_NOT_OK(parquet_reader->GetRecordBatchReader(row_group_indices, local_column_indices, &record_batch_reader));
+
+    auto t1 = std::chrono::steady_clock::now();
+    do {
+      TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
+
+      if (record_batch) {
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
+        batch_vectors.push_back(record_batch);
+        num_batches += 1;
+        num_rows += record_batch->num_rows();
+      }
+    } while (record_batch);
+    auto t2 = std::chrono::steady_clock::now();
+    elapse_read = std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+
+    std::cout << " parquet parse done elapsed time = " << elapse_read / 1000000 << " rows = " << num_rows << std::endl;
+
+    // reuse the columnarToRowConverter for batches caused system % increase a lot
+
+    auto arrowPool = GetDefaultWrappedArrowMemoryPool();
+    //auto veloxPool = AsWrappedVeloxMemoryPool(DefaultMemoryAllocator().get());
+    for (auto _ : state) {
+      for (const auto& vector : batch_vectors) {
+        auto columnarToRowConverter = std::make_shared<gluten::ArrowColumnarToRowConverter>(
+            std::dynamic_pointer_cast<arrow::RecordBatch>(vector), arrowPool);
+        TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
+        TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
+      }
+    }
+
+    state.counters["rowgroups"] = benchmark::Counter(
+        row_group_indices.size(), benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["columns"] =
+        benchmark::Counter(column_indices.size(), benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["batches"] =
+        benchmark::Counter(num_batches, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["num_rows"] =
+        benchmark::Counter(num_rows, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["batch_buffer_size"] =
+        benchmark::Counter(batch_buffer_size, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1024);
+
+    state.counters["parquet_parse"] =
+        benchmark::Counter(elapse_read, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["init_time"] =
+        benchmark::Counter(init_time, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+    state.counters["write_time"] =
+        benchmark::Counter(write_time, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
+  }
+};
+
+
 
 class GoogleBenchmarkColumnarToRow_IterateScan_Benchmark : public GoogleBenchmarkColumnarToRow {
  public:
@@ -286,6 +426,17 @@ int main(int argc, char** argv) {
   gluten::GoogleBenchmarkColumnarToRow_CacheScan_Benchmark bck(datafile);
 
   benchmark::RegisterBenchmark("GoogleBenchmarkColumnarToRow::CacheScan", bck)
+      ->Args({
+          cpu,
+      })
+      ->Iterations(iterations)
+      ->Threads(threads)
+      ->ReportAggregatesOnly(false)
+      ->MeasureProcessCPUTime()
+      ->Unit(benchmark::kSecond);
+
+  gluten::GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark bck2(datafile);
+  benchmark::RegisterBenchmark("GoogleBenchmarkArrowColumnarToRow::CacheScan", bck2)
       ->Args({
           cpu,
       })

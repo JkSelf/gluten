@@ -175,6 +175,9 @@ set(VELOX_SRCS
     )
 add_library(velox SHARED ${VELOX_SRCS})
 
+set_source_files_properties(compute/VeloxColumnarToRowConverter.cc PROPERTIES COMPILE_FLAGS "-mbmi2 -mbmi")
+
+
 target_include_directories(velox PUBLIC
     ${CMAKE_SYSTEM_INCLUDE_PATH}
     ${JNI_INCLUDE_DIRS}
