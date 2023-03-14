@@ -191,7 +191,7 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     auto t3 = std::chrono::steady_clock::now();
     convert_time = std::chrono::duration_cast<std::chrono::nanoseconds>(t3 - t2).count();
     
-    std::cout << " parquet parse done elapsed time = " << convert_time / 1000000 << " rows = " << num_rows << std::endl;
+    std::cout << " conversion done elapsed time = " << convert_time / 1000000 << " rows = " << num_rows << std::endl;
 
     // reuse the columnarToRowConverter for batches caused system % increase a lot
 
