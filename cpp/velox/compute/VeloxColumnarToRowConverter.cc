@@ -74,8 +74,8 @@ arrow::Status VeloxColumnarToRowConverter::Init() {
       auto str_views = vecs_[col_idx]->asFlatVector<velox::StringView>()->rawValues();
       int j = 0;
       // StringView: {size; prefix; inline}
-#ifdef __AVX512BW__
       int32_t* length_data = lengths_.data();
+#ifdef __AVX512BW__
       if (ARROW_PREDICT_TRUE(support_avx512_)) {
         __m256i x7_8x = _mm256_load_si256((__m256i*)x_7);
         __m256i x8_8x = _mm256_load_si256((__m256i*)x_8);
@@ -96,10 +96,10 @@ arrow::Status VeloxColumnarToRowConverter::Init() {
         }
       }
 #endif
-      for (int row_idx = j; row_idx < num_rows_; row_idx++) {
-        auto length = str_views[row_idx].size();
-        int64_t bytes = RoundNumberOfBytesToNearestWord(length);
-        lengths_[row_idx] += bytes;
+      for (; j < num_rows_; j++) {
+        auto length = str_views[j].size();
+        *length_data += RoundNumberOfBytesToNearestWord(length);
+        length_data++;
       }
     }
   }
@@ -118,6 +118,8 @@ arrow::Status VeloxColumnarToRowConverter::Init() {
     ARROW_ASSIGN_OR_RAISE(buffer_, AllocateBuffer(total_memory_size + 64, arrow_pool_.get()));
 #ifdef __AVX512BW__
     if (ARROW_PREDICT_TRUE(support_avx512_)) {
+      // only set the extra allocated bytes
+      // will set the buffer during fillbuffer
       memset(buffer_->mutable_data() + total_memory_size, 0, buffer_->capacity() - total_memory_size);
     } else
 #endif
@@ -160,7 +162,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
     for (auto j = row_start; j < row_start + batch_rows; j++) {
       auto rowlength = offsets_[j + 1] - offsets_[j];
       for (auto p = 0; p < rowlength + 32; p += 32) {
-        _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j]), fill_0_8x);
+        _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j] + p), fill_0_8x);
         _mm_prefetch(buffer_address_ + offsets_[j] + 128, _MM_HINT_T0);
       }
     }
@@ -199,6 +201,10 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
 #ifdef __AVX512BW__
             if (ARROW_PREDICT_TRUE(support_avx512_)) {
               // write the variable value
+              if (j < row_start + batch_rows - 2) {
+                _mm_prefetch(valuebuffers[j + 1].data(), _MM_HINT_T0);
+                _mm_prefetch(valuebuffers[j + 2].data(), _MM_HINT_T0);
+              }
               size_t k;
               for (k = 0; k + 32 < length; k += 32) {
                 __m256i v = _mm256_loadu_si256((const __m256i*)(value + k));
@@ -209,6 +215,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
               __m256i v = _mm256_maskz_loadu_epi8(mask, value + k);
               _mm256_mask_storeu_epi8(buffer_address_ + offsets_[j] + buffer_cursor_[j] + k, mask, v);
               _mm_prefetch(&valuebuffers[j + 128 / sizeof(facebook::velox::StringView)], _MM_HINT_T0);
+              _mm_prefetch(&offsets_[j], _MM_HINT_T1);
             } else
 #endif
             {
@@ -256,7 +263,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
               // write the variable value
               memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
               // write the offset and size
-              int64_t offsetAndSize = ((int64_t)buffer_cursor[j] << 32) | size;
+              int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
               memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
             }
 
@@ -271,7 +278,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
       default: {
         if (typewidth[col_index] > 0) {
           auto dataptr = dataptrs[col_index];
-          uint64_t mask = (1L << (typewidth[col_index])) - 1;
+          auto mask = (1L << (typewidth[col_index])) - 1;
           (void)mask;
 #if defined(__x86_64__)
           auto shift = _tzcnt_u32(typewidth[col_index]);
@@ -325,7 +332,7 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
     auto buf = array->values();
 
     // If nullvec[col_index]  equals 1, means no null value in this column
-    nullvec[col_index] = (array->mayHaveNulls());
+    nullvec[col_index] = !(array->mayHaveNulls());
     typevec[col_index] = schema_->field(col_index)->type()->id();
     // calculate bytes from bit_num
     typewidth[col_index] = arrow::bit_width(typevec[col_index]) >> 3;

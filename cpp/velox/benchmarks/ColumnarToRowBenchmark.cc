@@ -106,9 +106,6 @@ class GoogleBenchmarkColumnarToRow {
   parquet::ArrowReaderProperties properties;
 };
 
-std::shared_ptr<gluten::ArrowColumnarToRowConverter> arrow_converter;
-std::shared_ptr<gluten::VeloxColumnarToRowConverter> velox_converter;
-
 class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkColumnarToRow {
  public:
   GoogleBenchmarkColumnarToRow_CacheScan_Benchmark(std::string filename) : GoogleBenchmarkColumnarToRow(filename) {}
@@ -130,7 +127,8 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     std::vector<int> local_column_indices;
     local_column_indices.push_back(15);
     local_column_indices.push_back(14);
-    // local_column_indices.push_back(13);
+    local_column_indices.push_back(0);
+    local_column_indices.push_back(13);
     /*local_column_indices.push_back(1);
     local_column_indices.push_back(2);
     local_column_indices.push_back(4);
@@ -145,7 +143,7 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
 
     //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
     //      ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
@@ -158,7 +156,7 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
 
     if (state.thread_index() == 0)
       std::cout << local_schema->ToString() << std::endl;
@@ -209,8 +207,6 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
             std::dynamic_pointer_cast<velox::RowVector>(vector), arrowPool, veloxPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
-        velox_converter = columnarToRowConverter;
-        break;
       }
     }
 
@@ -255,7 +251,8 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     std::vector<int> local_column_indices;
     local_column_indices.push_back(15);
     local_column_indices.push_back(14);
-    // local_column_indices.push_back(13);
+    local_column_indices.push_back(0);
+    local_column_indices.push_back(13);
     /*local_column_indices.push_back(1);
     local_column_indices.push_back(2);
     local_column_indices.push_back(4);
@@ -270,7 +267,7 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
 
     //          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(15));
     //          ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(14));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(13));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(12));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(11));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
@@ -283,7 +280,7 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
 
     if (state.thread_index() == 0)
       std::cout << local_schema->ToString() << std::endl;
@@ -325,20 +322,6 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
             std::dynamic_pointer_cast<arrow::RecordBatch>(vector), arrowPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
-        arrow_converter = columnarToRowConverter;
-        break;
-      }
-    }
-    auto lengths = velox_converter->GetLengths();
-    auto offsets = velox_converter->GetOffsets();
-    auto veloxcvt = velox_converter->GetBufferAddress();
-    auto arrowcvt = arrow_converter->GetBufferAddress();
-    for (auto r = 0; r < lengths.size(); r++) {
-      for (auto b = 0; b < lengths[r]; b++) {
-        if (veloxcvt[offsets[r] + b] != arrowcvt[offsets[r] + b]) {
-          std::cout << " row " << r << " bytes " << b << " miss match " << std::endl;
-          break;
-        }
       }
     }
 
@@ -427,6 +410,7 @@ int main(int argc, char** argv) {
   uint32_t threads = 1;
   std::string datafile;
   uint32_t cpu = 0xffffffff;
+  uint32_t test_velox = 1;
 
   for (int i = 0; i < argc; i++) {
     if (strcmp(argv[i], "--iterations") == 0) {
@@ -437,6 +421,10 @@ int main(int argc, char** argv) {
       datafile = argv[i + 1];
     } else if (strcmp(argv[i], "--cpu") == 0) {
       cpu = atol(argv[i + 1]);
+    } else if (strcmp(argv[i], "--test_velox") == 0) {
+      test_velox = 1;
+    } else if (strcmp(argv[i], "--test_arrow") == 0) {
+      test_velox = 0;
     }
   }
   std::cout << "iterations = " << iterations << std::endl;
@@ -446,26 +434,28 @@ int main(int argc, char** argv) {
 
   gluten::GoogleBenchmarkColumnarToRow_CacheScan_Benchmark bck(datafile);
 
-  benchmark::RegisterBenchmark("GoogleBenchmarkColumnarToRow::CacheScan", bck)
-      ->Args({
-          cpu,
-      })
-      ->Iterations(iterations)
-      ->Threads(threads)
-      ->ReportAggregatesOnly(false)
-      ->MeasureProcessCPUTime()
-      ->Unit(benchmark::kSecond);
+  if (test_velox)
+    benchmark::RegisterBenchmark("GoogleBenchmarkColumnarToRow::CacheScan", bck)
+        ->Args({
+            cpu,
+        })
+        ->Iterations(iterations)
+        ->Threads(threads)
+        ->ReportAggregatesOnly(false)
+        ->MeasureProcessCPUTime()
+        ->Unit(benchmark::kSecond);
 
   gluten::GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark bck2(datafile);
-  benchmark::RegisterBenchmark("GoogleBenchmarkArrowColumnarToRow::CacheScan", bck2)
-      ->Args({
-          cpu,
-      })
-      ->Iterations(iterations)
-      ->Threads(threads)
-      ->ReportAggregatesOnly(false)
-      ->MeasureProcessCPUTime()
-      ->Unit(benchmark::kSecond);
+  if (!test_velox)
+    benchmark::RegisterBenchmark("GoogleBenchmarkArrowColumnarToRow::CacheScan", bck2)
+        ->Args({
+            cpu,
+        })
+        ->Iterations(iterations)
+        ->Threads(threads)
+        ->ReportAggregatesOnly(false)
+        ->MeasureProcessCPUTime()
+        ->Unit(benchmark::kSecond);
 
   benchmark::Initialize(&argc, argv);
   benchmark::RunSpecifiedBenchmarks();

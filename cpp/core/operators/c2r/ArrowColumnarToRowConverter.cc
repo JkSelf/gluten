@@ -112,6 +112,8 @@ arrow::Status ArrowColumnarToRowConverter::Init() {
     ARROW_ASSIGN_OR_RAISE(buffer_, AllocateBuffer(total_memory_size + 64, arrow_pool_.get()));
 #ifdef __AVX512BW__
     if (ARROW_PREDICT_TRUE(support_avx512_)) {
+      // only set the extra allocated bytes
+      // will set the buffer during fillbuffer
       memset(buffer_->mutable_data() + total_memory_size, 0, buffer_->capacity() - total_memory_size);
     } else
 #endif
@@ -140,7 +142,7 @@ arrow::Status ArrowColumnarToRowConverter::FillBuffer(
     for (auto j = row_start; j < row_start + batch_rows; j++) {
       auto rowlength = offsets_[j + 1] - offsets_[j];
       for (auto p = 0; p < rowlength + 32; p += 32) {
-        _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j]), fill_0_8x);
+        _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j] + p), fill_0_8x);
         _mm_prefetch(buffer_address_ + offsets_[j] + 128, _MM_HINT_T0);
       }
     }
@@ -189,6 +191,7 @@ arrow::Status ArrowColumnarToRowConverter::FillBuffer(
               auto mask = (1L << (length - k)) - 1;
               __m256i v = _mm256_maskz_loadu_epi8(mask, value + k);
               _mm256_mask_storeu_epi8(buffer_address_ + offsets_[j] + buffer_cursor_[j] + k, mask, v);
+              _mm_prefetch(&offsets_[j], _MM_HINT_T1);
             } else
 #endif
             {
