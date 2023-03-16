@@ -118,8 +118,11 @@ class CheckOverflowTransformer(
         Seq(original.dataType, BooleanType),
         FunctionConfig.OPT))
 
+    // just make a fake toType value, because native engine cannot accept datatype itself
+    val toTypeNodes = ExpressionBuilder.makeDecimalLiteral(
+      new Decimal().set(0, original.dataType.precision, original.dataType.scale))
     val expressionNodes =
-      Lists.newArrayList(childNode, new BooleanLiteralNode(original.nullOnOverflow))
+      Lists.newArrayList(childNode, toTypeNodes, new BooleanLiteralNode(original.nullOnOverflow))
     val typeNode = ConverterUtils.getTypeNode(original.dataType, original.nullable)
     ExpressionBuilder.makeScalarFunction(functionId, expressionNodes, typeNode)
   }
