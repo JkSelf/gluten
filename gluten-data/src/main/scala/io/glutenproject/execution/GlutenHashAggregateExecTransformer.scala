@@ -154,10 +154,7 @@ case class GlutenHashAggregateExecTransformer(
     aggregateFunction match {
       case avg: Average =>
         structTypeNodes.add(ConverterUtils.getTypeNode(
-          avg.dataType match {
-            case _ @ GlutenDecimalUtil.Fixed(p, s) => GlutenDecimalUtil.bounded(p + 10, s)
-            case _ => DoubleType
-          }, nullable = true))
+          GlutenDecimalUtil.getAvgSumDataType(avg), nullable = true))
         structTypeNodes.add(ConverterUtils.getTypeNode(LongType, nullable = true))
       case _: StddevSamp | _: StddevPop | _: VarianceSamp | _: VariancePop =>
         // Use struct type to represent Velox Row(BIGINT, DOUBLE, DOUBLE).
@@ -194,13 +191,7 @@ case class GlutenHashAggregateExecTransformer(
           case Final =>
             val dataType = aggregateFunction match {
               case avg: Average =>
-                avg.dataType match {
-                  case _ @ GlutenDecimalUtil.Fixed(p, s) =>
-                    // avg.dataType is Decimal(p + 4, s + 4) and sumType is Decimal(p + 10, s)
-                    // we need to get sumType, so p = p - 4 + 10 and s = s - 4
-                    GlutenDecimalUtil.bounded(p - 4 + 10, s - 4)
-                  case _ => DoubleType
-                }
+                GlutenDecimalUtil.getAvgSumDataType(avg)
               case _ =>
                 aggregateFunction.dataType
             }

@@ -18,7 +18,8 @@ package io.glutenproject.utils
 
 import scala.math.min
 
-import org.apache.spark.sql.types.DecimalType
+import org.apache.spark.sql.catalyst.expressions.aggregate.Average
+import org.apache.spark.sql.types.{DataType, DecimalType, DoubleType}
 import org.apache.spark.sql.types.DecimalType.{MAX_PRECISION, MAX_SCALE}
 
 object GlutenDecimalUtil {
@@ -28,5 +29,12 @@ object GlutenDecimalUtil {
 
   def bounded(precision: Int, scale: Int): DecimalType = {
     DecimalType(min(precision, MAX_PRECISION), min(scale, MAX_SCALE))
+  }
+
+  def getAvgSumDataType(avg: Average): DataType = avg.dataType match {
+    // avg.dataType is Decimal(p + 4, s + 4) and sumType is Decimal(p + 10, s)
+    // we need to get sumType, so p = p - 4 + 10 and s = s - 4
+    case _ @ GlutenDecimalUtil.Fixed(p, s) => GlutenDecimalUtil.bounded(p - 4 + 10, s - 4)
+    case _ => DoubleType
   }
 }
