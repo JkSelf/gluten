@@ -123,20 +123,21 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     int64_t init_time = 0;
     int64_t write_time = 0;
     int64_t convert_time = 0;
-    int64_t buffer_size = 0;
-
+    int64_t buffer_size=0;
+    
     std::vector<int> local_column_indices;
-    local_column_indices.push_back(15);
-    local_column_indices.push_back(14);
     local_column_indices.push_back(0);
-    local_column_indices.push_back(13);
-    /*local_column_indices.push_back(1);
+    local_column_indices.push_back(1);
     local_column_indices.push_back(2);
+    local_column_indices.push_back(3);
     local_column_indices.push_back(4);
     local_column_indices.push_back(5);
     local_column_indices.push_back(6);
     local_column_indices.push_back(7);
-*/
+    local_column_indices.push_back(13);
+    local_column_indices.push_back(14);
+    local_column_indices.push_back(15);
+
     // std::vector<int> local_column_indices = column_indices;
 
     std::shared_ptr<arrow::Schema> local_schema;
@@ -150,13 +151,13 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
-    ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
     // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
 
     if (state.thread_index() == 0)

@@ -32,6 +32,12 @@ using namespace facebook;
 
 namespace gluten {
 
+
+#define ASSIGN_VALUE(datatype) \
+            auto values = reinterpret_cast<const datatype*>(dataptrs[col_index]); \
+            auto p = reinterpret_cast<datatype*>(buffer_address_ + offsets_[j] + field_offset); \
+            *p = values[j]
+
 uint32_t x_7[8] __attribute__((aligned(32))) = {0x7, 0x7, 0x7, 0x7, 0x7, 0x7, 0x7, 0x7};
 uint32_t x_8[8] __attribute__((aligned(32))) = {0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8};
 uint32_t x_seq[8] __attribute__((aligned(32))) = {0x0, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70};
@@ -183,17 +189,13 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         }
         case arrow::Int8Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            auto values = reinterpret_cast<const uint8_t*>(dataptrs[col_index]);
-            auto p = reinterpret_cast<uint8_t*>(buffer_address_ + offsets_[j] + field_offset);
-            *p = values[j];
+            ASSIGN_VALUE(uint8_t);
           }
           break;
         }
         case arrow::Int16Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            auto values = reinterpret_cast<const uint16_t*>(dataptrs[col_index]);
-            auto p = reinterpret_cast<uint16_t*>(buffer_address_ + offsets_[j] + field_offset);
-            *p = values[j];
+            ASSIGN_VALUE(uint16_t);
           }
           break;
         }
@@ -201,18 +203,14 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Int32Type::type_id:
         case arrow::Date32Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            auto values = reinterpret_cast<const uint32_t*>(dataptrs[col_index]);
-            auto p = reinterpret_cast<uint32_t*>(buffer_address_ + offsets_[j] + field_offset);
-            *p = values[j];
+            ASSIGN_VALUE(uint32_t);
           }
           break;
         }
         case arrow::Int64Type::type_id:
         case arrow::DoubleType::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            auto values = reinterpret_cast<const uint64_t*>(dataptrs[col_index]);
-            auto p = reinterpret_cast<uint64_t*>(buffer_address_ + offsets_[j] + field_offset);
-            *p = values[j];
+            ASSIGN_VALUE(uint64_t);
           }
           break;
         }
@@ -321,9 +319,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Int8Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
             if (!array->isNullAt(j)) {
-              auto values = reinterpret_cast<const uint8_t*>(dataptrs[col_index]);
-              auto p = reinterpret_cast<uint8_t*>(buffer_address_ + offsets_[j] + field_offset);
-              *p = values[j];
+              ASSIGN_VALUE(uint8_t);
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
@@ -333,9 +329,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Int16Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
             if (!array->isNullAt(j)) {
-              auto values = reinterpret_cast<const uint16_t*>(dataptrs[col_index]);
-              auto p = reinterpret_cast<uint16_t*>(buffer_address_ + offsets_[j] + field_offset);
-              *p = values[j];
+              ASSIGN_VALUE(uint16_t);
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
@@ -347,9 +341,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Date32Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
             if (!array->isNullAt(j)) {
-              auto values = reinterpret_cast<const uint32_t*>(dataptrs[col_index]);
-              auto p = reinterpret_cast<uint32_t*>(buffer_address_ + offsets_[j] + field_offset);
-              *p = values[j];
+              ASSIGN_VALUE(uint32_t);
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
@@ -360,9 +352,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::DoubleType::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
             if (!array->isNullAt(j)) {
-              auto values = reinterpret_cast<const uint64_t*>(dataptrs[col_index]);
-              auto p = reinterpret_cast<uint64_t*>(buffer_address_ + offsets_[j] + field_offset);
-              *p = values[j];
+              ASSIGN_VALUE(uint64_t);
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
