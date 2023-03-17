@@ -182,12 +182,12 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
               int64_t long_value = shortDecimal[row_idx].unscaledValue();
               memcpy(buffer_address_ + offsets_[row_idx] + field_offset, &long_value, sizeof(long));
             } else {
-              SetNullAt(buffer_address_, offsets_[row_idx], field_offset, row_idx);
+              SetNullAt(buffer_address_, offsets_[row_idx], field_offset, col_idx);
             }
           } else {
             auto longDecimal = vec->asFlatVector<velox::UnscaledLongDecimal>()->rawValues();
             if (flag) {
-              SetNullAt(buffer_address_, offsets_[row_idx], field_offset, row_idx);
+              SetNullAt(buffer_address_, offsets_[row_idx], field_offset, col_idx);
             } else {
               int32_t size;
               velox::int128_t veloxInt128 = longDecimal[row_idx].unscaledValue();
