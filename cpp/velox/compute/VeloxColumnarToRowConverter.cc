@@ -346,7 +346,6 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Int32Type::type_id:
         case arrow::Date32Type::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            _mm_prefetch(dataptrs[col_index + 1] + (j >> prefetch_shift), _MM_HINT_T0);
             if (!array->isNullAt(j)) {
               auto values = reinterpret_cast<const uint32_t*>(dataptrs[col_index]);
               auto p = reinterpret_cast<uint32_t*>(buffer_address_ + offsets_[j] + field_offset);
@@ -360,7 +359,6 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
         case arrow::Int64Type::type_id:
         case arrow::DoubleType::type_id: {
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            _mm_prefetch(dataptrs[col_index + 1] + (j >> prefetch_shift), _MM_HINT_T0);
             if (!array->isNullAt(j)) {
               auto values = reinterpret_cast<const uint64_t*>(dataptrs[col_index]);
               auto p = reinterpret_cast<uint64_t*>(buffer_address_ + offsets_[j] + field_offset);
