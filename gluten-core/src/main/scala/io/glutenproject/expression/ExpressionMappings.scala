@@ -197,7 +197,7 @@ object ExpressionMappings {
   final val IN_SET = "in_set"
   final val SCALAR_SUBQUERY = "scalar_subquery"
   final val EXPLODE = "explode"
-  final val CHECK_OVERFLOW = "check_overflow"
+  final val CHECK_OVERFLOW = "ss_check_overflow"
   final val PROMOTE_PRECISION = "promote_precision"
   final val ROW_CONSTRUCTOR = "row_constructor"
 
