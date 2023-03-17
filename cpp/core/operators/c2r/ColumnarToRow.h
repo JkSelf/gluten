@@ -60,6 +60,7 @@ class ColumnarToRowConverter {
   int32_t num_rows_;
   uint8_t* buffer_address_;
   std::vector<int32_t> offsets_;
+  uint32_t avg_rowsize_;
   std::vector<int32_t, boost::alignment::aligned_allocator<int32_t, 32>> lengths_;
 
   inline int64_t CalculateBitSetWidthInBytes(int32_t numFields) {
@@ -89,7 +90,8 @@ class ColumnarToRowConverter {
   inline void SetNullAt(uint8_t* buffer_address, int64_t row_offset, int64_t field_offset, int32_t col_index) {
     BitSet(buffer_address + row_offset, col_index);
     // set the value to 0
-    *(int64_t*)(buffer_address + row_offset + field_offset) = 0;
+    // already reset all block
+    //*(int64_t*)(buffer_address + row_offset + field_offset) = 0;
   }
 
   inline int32_t FirstNonzeroLongNum(const std::vector<int32_t>& mag, int32_t length) {

@@ -123,6 +123,7 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     int64_t init_time = 0;
     int64_t write_time = 0;
     int64_t convert_time = 0;
+    int64_t buffer_size = 0;
 
     std::vector<int> local_column_indices;
     local_column_indices.push_back(15);
@@ -207,6 +208,7 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
             std::dynamic_pointer_cast<velox::RowVector>(vector), arrowPool, veloxPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
+        buffer_size = columnarToRowConverter->GetOffsets().back();
       }
     }
 
@@ -220,6 +222,9 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
         benchmark::Counter(num_rows, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
     state.counters["batch_buffer_size"] =
         benchmark::Counter(batch_buffer_size, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1024);
+
+    state.counters["row_buffer_size"] =
+        benchmark::Counter(buffer_size, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1024);
 
     state.counters["parquet_parse"] =
         benchmark::Counter(elapse_read, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
@@ -247,6 +252,7 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     int64_t num_rows = 0;
     int64_t init_time = 0;
     int64_t write_time = 0;
+    int64_t buffer_size = 0;
 
     std::vector<int> local_column_indices;
     local_column_indices.push_back(15);
@@ -322,6 +328,7 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
             std::dynamic_pointer_cast<arrow::RecordBatch>(vector), arrowPool);
         TIME_NANO_OR_THROW(init_time, columnarToRowConverter->Init());
         TIME_NANO_OR_THROW(write_time, columnarToRowConverter->Write());
+        buffer_size = columnarToRowConverter->GetOffsets().back();
       }
     }
 
@@ -335,6 +342,8 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
         benchmark::Counter(num_rows, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);
     state.counters["batch_buffer_size"] =
         benchmark::Counter(batch_buffer_size, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1024);
+    state.counters["row_buffer_size"] =
+        benchmark::Counter(buffer_size, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1024);
 
     state.counters["parquet_parse"] =
         benchmark::Counter(elapse_read, benchmark::Counter::kAvgThreads, benchmark::Counter::OneK::kIs1000);

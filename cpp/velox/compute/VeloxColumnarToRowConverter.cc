@@ -17,9 +17,7 @@
 
 #include "VeloxColumnarToRowConverter.h"
 
-#include <arrow/array/array_base.h>
-#include <arrow/buffer.h>
-#include <arrow/type_traits.h>
+#include <arrow/util/logging.h>
 
 #include "ArrowTypeUtils.h"
 #include "arrow/c/helpers.h"
@@ -112,20 +110,14 @@ arrow::Status VeloxColumnarToRowConverter::Init() {
     total_memory_size += lengths_[i];
   }
   offsets_[num_rows_] = total_memory_size;
+  // make sure destination buffer is less than 4G because offsets are uint32
+  ARROW_CHECK_LE(total_memory_size, 0xFFFFFFFF);
+  avg_rowsize_ = total_memory_size / num_rows_;
 
   // allocate one more cache line to ease avx operations
   if (buffer_ == nullptr || buffer_->capacity() < total_memory_size + 64) {
     ARROW_ASSIGN_OR_RAISE(buffer_, AllocateBuffer(total_memory_size + 64, arrow_pool_.get()));
-#ifdef __AVX512BW__
-    if (ARROW_PREDICT_TRUE(support_avx512_)) {
-      // only set the extra allocated bytes
-      // will set the buffer during fillbuffer
-      memset(buffer_->mutable_data() + total_memory_size, 0, buffer_->capacity() - total_memory_size);
-    } else
-#endif
-    {
-      memset(buffer_->mutable_data(), 0, buffer_->capacity());
-    }
+    memset(buffer_->mutable_data() + total_memory_size, 0, buffer_->capacity() - total_memory_size);
   }
 
   buffer_address_ = buffer_->mutable_data();
@@ -147,6 +139,7 @@ void VeloxColumnarToRowConverter::ResumeVeloxVector() {
     }
   }
 }
+
 arrow::Status VeloxColumnarToRowConverter::FillBuffer(
     int32_t& row_start,
     int32_t batch_rows,
@@ -158,43 +151,76 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
   if (ARROW_PREDICT_TRUE(support_avx512_)) {
     __m256i fill_0_8x = {0LL};
     fill_0_8x = _mm256_xor_si256(fill_0_8x, fill_0_8x);
-    // memset 0, force to bring the row buffer into L1/L2 cache
-    for (auto j = row_start; j < row_start + batch_rows; j++) {
-      auto rowlength = offsets_[j + 1] - offsets_[j];
-      for (auto p = 0; p < rowlength + 32; p += 32) {
-        _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j] + p), fill_0_8x);
-        _mm_prefetch(buffer_address_ + offsets_[j] + 128, _MM_HINT_T0);
-      }
+    // memset 0, force to bring the row buffer into L1 cache
+    auto rowlength = offsets_[row_start + batch_rows] - offsets_[row_start];
+    for (auto p = 0; p < rowlength + 32; p += 32) {
+      _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[row_start] + p), fill_0_8x);
+      _mm_prefetch(buffer_address_ + offsets_[row_start] + 128, _MM_HINT_T0);
     }
-  }
+  } else
 #endif
+  {
+    auto rowlength = offsets_[row_start + batch_rows + 1] - offsets_[row_start];
+    memset(buffer_address_ + offsets_[row_start], 0, rowlength);
+  }
   // fill the row by one column each time
-  for (auto col_index = 0; col_index < num_cols_; col_index++) {
+  for (auto col_index = 0; col_index < num_cols_ - 1; col_index++) {
     auto& array = vecs_[col_index];
+
     int64_t field_offset = nullBitsetWidthInBytes_ + (col_index << 3L);
-
-    switch (typevec[col_index]) {
-      // We should keep supported types consistent with that in #buildCheck of GlutenColumnarToRowExec.scala.
-      case arrow::BooleanType::type_id: {
-        // Boolean type
-        auto bool_array = array->asFlatVector<bool>();
-
-        for (auto j = row_start; j < row_start + batch_rows; j++) {
-          if (nullvec[col_index] || (!array->isNullAt(j))) {
+    if (nullvec[col_index]) {
+      switch (typevec[col_index]) {
+        // We should keep supported types consistent with that in #buildCheck of GlutenColumnarToRowExec.scala.
+        case arrow::BooleanType::type_id: {
+          // Boolean type
+          auto bool_array = array->asFlatVector<bool>();
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
             auto value = bool_array->valueAt(j);
-            memcpy(buffer_address_ + offsets_[j] + field_offset, &value, sizeof(bool));
-          } else {
-            SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            auto p = reinterpret_cast<bool*>(buffer_address_ + offsets_[j] + field_offset);
+            *p = value;
           }
+          break;
         }
-        break;
-      }
-      case arrow::StringType::type_id:
-      case arrow::BinaryType::type_id: {
-        // Binary type
-        facebook::velox::StringView* valuebuffers = (facebook::velox::StringView*)(dataptrs[col_index]);
-        for (auto j = row_start; j < row_start + batch_rows; j++) {
-          if (nullvec[col_index] || (!array->isNullAt(j))) {
+        case arrow::Int8Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            auto values = reinterpret_cast<const uint8_t*>(dataptrs[col_index]);
+            auto p = reinterpret_cast<uint8_t*>(buffer_address_ + offsets_[j] + field_offset);
+            *p = values[j];
+          }
+          break;
+        }
+        case arrow::Int16Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            auto values = reinterpret_cast<const uint16_t*>(dataptrs[col_index]);
+            auto p = reinterpret_cast<uint16_t*>(buffer_address_ + offsets_[j] + field_offset);
+            *p = values[j];
+          }
+          break;
+        }
+        case arrow::FloatType::type_id:
+        case arrow::Int32Type::type_id:
+        case arrow::Date32Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            auto values = reinterpret_cast<const uint32_t*>(dataptrs[col_index]);
+            auto p = reinterpret_cast<uint32_t*>(buffer_address_ + offsets_[j] + field_offset);
+            *p = values[j];
+          }
+          break;
+        }
+        case arrow::Int64Type::type_id:
+        case arrow::DoubleType::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            auto values = reinterpret_cast<const uint64_t*>(dataptrs[col_index]);
+            auto p = reinterpret_cast<uint64_t*>(buffer_address_ + offsets_[j] + field_offset);
+            *p = values[j];
+          }
+          break;
+        }
+        case arrow::StringType::type_id:
+        case arrow::BinaryType::type_id: {
+          // Binary type
+          facebook::velox::StringView* valuebuffers = (facebook::velox::StringView*)(dataptrs[col_index]);
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
             size_t length = valuebuffers[j].size();
             const char* value = valuebuffers[j].data();
 
@@ -215,7 +241,6 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
               __m256i v = _mm256_maskz_loadu_epi8(mask, value + k);
               _mm256_mask_storeu_epi8(buffer_address_ + offsets_[j] + buffer_cursor_[j] + k, mask, v);
               _mm_prefetch(&valuebuffers[j + 128 / sizeof(facebook::velox::StringView)], _MM_HINT_T0);
-              _mm_prefetch(&offsets_[j], _MM_HINT_T1);
             } else
 #endif
             {
@@ -226,85 +251,212 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
             // write the offset and size
             int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | length;
             *(int64_t*)(buffer_address_ + offsets_[j] + field_offset) = offsetAndSize;
-            buffer_cursor_[j] += RoundNumberOfBytesToNearestWord(length);
-          } else {
-            SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            buffer_cursor_[j] += length; // RoundNumberOfBytesToNearestWord(length);
           }
+          break;
         }
-        break;
-      }
-      case arrow::Decimal128Type::type_id: {
-        /*auto out_array = dynamic_cast<arrow::Decimal128Array*>(array.get());
-        auto dtype = dynamic_cast<arrow::Decimal128Type*>(out_array->type().get());
+        case arrow::Decimal128Type::type_id: {
+          /*auto out_array = dynamic_cast<arrow::Decimal128Array*>(array.get());
+          auto dtype = dynamic_cast<arrow::Decimal128Type*>(out_array->type().get());
 
-        int32_t precision = dtype->precision();
+          int32_t precision = dtype->precision();
 
-        for (auto j = row_start; j < row_start + batch_rows; j++) {
-          const arrow::Decimal128 out_value(out_array->GetValue(j));
-          bool flag = out_array->IsNull(j);
-
-          if (precision <= 18) {
-            if (!flag) {
-              // Get the long value and write the long value
-              // Refer to the int64_t() method of Decimal128
-              int64_t long_value = static_cast<int64_t>(out_value.low_bits());
-              memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
-            } else {
-              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-            }
-          } else {
-            if (flag) {
-              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-            } else {
-              int32_t size;
-              auto out = ToByteArray(out_value, &size);
-              assert(size <= 16);
-
-              // write the variable value
-              memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
-              // write the offset and size
-              int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
-              memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
-            }
-
-            // Update the cursor of the buffer.
-            int64_t new_cursor = buffer_cursor_[j] + 16;
-            buffer_cursor_[j] = new_cursor;
-          }
-        }*/
-        return arrow::Status::Invalid("Unsupported data type decimal ");
-        break;
-      }
-      default: {
-        if (typewidth[col_index] > 0) {
-          auto dataptr = dataptrs[col_index];
-          auto mask = (1L << (typewidth[col_index])) - 1;
-          (void)mask;
-#if defined(__x86_64__)
-          auto shift = _tzcnt_u32(typewidth[col_index]);
-#else
-          auto shift = __builtin_ctz((uint32_t)typewidth[col_index]);
-#endif
-          auto buffer_address_tmp = buffer_address_ + field_offset;
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            if (nullvec[col_index] || (!array->isNullAt(j))) {
-              const uint8_t* srcptr = dataptr + (j << shift);
-#ifdef __AVX512BW__
-              if (ARROW_PREDICT_TRUE(support_avx512_)) {
-                __m256i v = _mm256_maskz_loadu_epi8(mask, srcptr);
-                _mm256_mask_storeu_epi8(buffer_address_tmp + offsets_[j], mask, v);
-                _mm_prefetch(srcptr + 64, _MM_HINT_T0);
-              } else
-#endif
-              {
-                memcpy(buffer_address_tmp + offsets_[j], srcptr, typewidth[col_index]);
+            const arrow::Decimal128 out_value(out_array->GetValue(j));
+            bool flag = out_array->IsNull(j);
+
+            if (precision <= 18) {
+              if (!flag) {
+                // Get the long value and write the long value
+                // Refer to the int64_t() method of Decimal128
+                int64_t long_value = static_cast<int64_t>(out_value.low_bits());
+                memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
+              } else {
+                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
               }
+            } else {
+              if (flag) {
+                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+              } else {
+                int32_t size;
+                auto out = ToByteArray(out_value, &size);
+                assert(size <= 16);
+
+                // write the variable value
+                memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
+                // write the offset and size
+                int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
+                memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
+              }
+
+              // Update the cursor of the buffer.
+              int64_t new_cursor = buffer_cursor_[j] + 16;
+              buffer_cursor_[j] = new_cursor;
+            }
+          }*/
+          return arrow::Status::Invalid("Unsupported data type decimal ");
+          break;
+        }
+        default: {
+          return arrow::Status::Invalid("Unsupported data type: " + typevec[col_index]);
+        }
+      }
+    } else {
+      switch (typevec[col_index]) {
+        // We should keep supported types consistent with that in #buildCheck of GlutenColumnarToRowExec.scala.
+        case arrow::BooleanType::type_id: {
+          // Boolean type
+          auto bool_array = array->asFlatVector<bool>();
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            if (!array->isNullAt(j)) {
+              auto value = bool_array->valueAt(j);
+              auto p = reinterpret_cast<bool*>(buffer_address_ + offsets_[j] + field_offset);
+              *p = value;
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
           }
           break;
-        } else {
+        }
+        case arrow::Int8Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            if (!array->isNullAt(j)) {
+              auto values = reinterpret_cast<const uint8_t*>(dataptrs[col_index]);
+              auto p = reinterpret_cast<uint8_t*>(buffer_address_ + offsets_[j] + field_offset);
+              *p = values[j];
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
+        case arrow::Int16Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            if (!array->isNullAt(j)) {
+              auto values = reinterpret_cast<const uint16_t*>(dataptrs[col_index]);
+              auto p = reinterpret_cast<uint16_t*>(buffer_address_ + offsets_[j] + field_offset);
+              *p = values[j];
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
+        case arrow::FloatType::type_id:
+        case arrow::Int32Type::type_id:
+        case arrow::Date32Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            _mm_prefetch(dataptrs[col_index + 1] + (j >> prefetch_shift), _MM_HINT_T0);
+            if (!array->isNullAt(j)) {
+              auto values = reinterpret_cast<const uint32_t*>(dataptrs[col_index]);
+              auto p = reinterpret_cast<uint32_t*>(buffer_address_ + offsets_[j] + field_offset);
+              *p = values[j];
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
+        case arrow::Int64Type::type_id:
+        case arrow::DoubleType::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            _mm_prefetch(dataptrs[col_index + 1] + (j >> prefetch_shift), _MM_HINT_T0);
+            if (!array->isNullAt(j)) {
+              auto values = reinterpret_cast<const uint64_t*>(dataptrs[col_index]);
+              auto p = reinterpret_cast<uint64_t*>(buffer_address_ + offsets_[j] + field_offset);
+              *p = values[j];
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
+        case arrow::StringType::type_id:
+        case arrow::BinaryType::type_id: {
+          // Binary type
+          facebook::velox::StringView* valuebuffers = (facebook::velox::StringView*)(dataptrs[col_index]);
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            if (!array->isNullAt(j)) {
+              size_t length = valuebuffers[j].size();
+              const char* value = valuebuffers[j].data();
+
+#ifdef __AVX512BW__
+              if (ARROW_PREDICT_TRUE(support_avx512_)) {
+                // write the variable value
+                if (j < row_start + batch_rows - 2) {
+                  _mm_prefetch(valuebuffers[j + 1].data(), _MM_HINT_T0);
+                  _mm_prefetch(valuebuffers[j + 2].data(), _MM_HINT_T0);
+                }
+                size_t k;
+                for (k = 0; k + 32 < length; k += 32) {
+                  __m256i v = _mm256_loadu_si256((const __m256i*)(value + k));
+                  _mm256_storeu_si256((__m256i*)(buffer_address_ + offsets_[j] + buffer_cursor_[j] + k), v);
+                }
+                // create some bits of "1", num equals length
+                auto mask = (1L << (length - k)) - 1;
+                __m256i v = _mm256_maskz_loadu_epi8(mask, value + k);
+                _mm256_mask_storeu_epi8(buffer_address_ + offsets_[j] + buffer_cursor_[j] + k, mask, v);
+                _mm_prefetch(&valuebuffers[j + 128 / sizeof(facebook::velox::StringView)], _MM_HINT_T0);
+              } else
+#endif
+              {
+                // write the variable value
+                memcpy(buffer_address_ + offsets_[j] + buffer_cursor_[j], value, length);
+              }
+
+              // write the offset and size
+              int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | length;
+              *(int64_t*)(buffer_address_ + offsets_[j] + field_offset) = offsetAndSize;
+              buffer_cursor_[j] += length; // RoundNumberOfBytesToNearestWord(length);
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
+        case arrow::Decimal128Type::type_id: {
+          /*auto out_array = dynamic_cast<arrow::Decimal128Array*>(array.get());
+          auto dtype = dynamic_cast<arrow::Decimal128Type*>(out_array->type().get());
+
+          int32_t precision = dtype->precision();
+
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            const arrow::Decimal128 out_value(out_array->GetValue(j));
+            bool flag = out_array->IsNull(j);
+
+            if (precision <= 18) {
+              if (!flag) {
+                // Get the long value and write the long value
+                // Refer to the int64_t() method of Decimal128
+                int64_t long_value = static_cast<int64_t>(out_value.low_bits());
+                memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
+              } else {
+                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+              }
+            } else {
+              if (flag) {
+                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+              } else {
+                int32_t size;
+                auto out = ToByteArray(out_value, &size);
+                assert(size <= 16);
+
+                // write the variable value
+                memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
+                // write the offset and size
+                int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
+                memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
+              }
+
+              // Update the cursor of the buffer.
+              int64_t new_cursor = buffer_cursor_[j] + 16;
+              buffer_cursor_[j] = new_cursor;
+            }
+          }*/
+          return arrow::Status::Invalid("Unsupported data type decimal ");
+          break;
+        }
+        default: {
           return arrow::Status::Invalid("Unsupported data type: " + typevec[col_index]);
         }
       }
@@ -316,7 +468,8 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
 arrow::Status VeloxColumnarToRowConverter::Write() {
   std::vector<facebook::velox::VectorPtr>& arrays = vecs_;
   std::vector<const uint8_t*> dataptrs;
-  dataptrs.resize(num_cols_);
+
+  dataptrs.resize(num_cols_ + 1);
   std::vector<uint8_t> nullvec;
   nullvec.resize(num_cols_, 0);
 
@@ -345,17 +498,21 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
           "Type " + schema_->field(col_index)->type()->name() + " is not supported in VeloxToRow conversion.");
     }
   }
+  // ease prefetch
+  *dataptrs.rbegin() = nullptr;
 
   int32_t i = 0;
-#define BATCH_ROW_NUM 16
+#if 1
+  // iterate 32K each batch
+  auto batch_num = 32 * 1024 / (16 + avg_rowsize_);
+  batch_num = (batch_num == 0 || batch_num > num_rows_) ? num_rows_ : batch_num;
   // file BATCH_ROW_NUM rows each time, fill by column. Make sure the row is in L1/L2 cache
-  for (; i + BATCH_ROW_NUM < num_rows_; i += BATCH_ROW_NUM) {
-    RETURN_NOT_OK(FillBuffer(i, BATCH_ROW_NUM, dataptrs, nullvec, typevec, typewidth));
+  for (; i + batch_num < num_rows_; i += batch_num) {
+    RETURN_NOT_OK(FillBuffer(i, batch_num, dataptrs, nullvec, typevec, typewidth));
   }
-
-  for (; i < num_rows_; i++) {
-    RETURN_NOT_OK(FillBuffer(i, 1, dataptrs, nullvec, typevec, typewidth));
-  }
+#endif
+  if (i < num_rows_)
+    RETURN_NOT_OK(FillBuffer(i, num_rows_ - i, dataptrs, nullvec, typevec, typewidth));
 
   return arrow::Status::OK();
 }
