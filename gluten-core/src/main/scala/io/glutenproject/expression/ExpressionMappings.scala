@@ -199,6 +199,7 @@ object ExpressionMappings {
   final val SCALAR_SUBQUERY = "scalar_subquery"
   final val EXPLODE = "explode"
   final val CHECK_OVERFLOW = "ss_check_overflow"
+  final val MAKE_DECIMAL = "make_decimal"
   final val PROMOTE_PRECISION = "promote_precision"
   final val ROW_CONSTRUCTOR = "row_constructor"
 
@@ -376,6 +377,7 @@ object ExpressionMappings {
     Sig[InSet](IN_SET),
     Sig[ScalarSubquery](SCALAR_SUBQUERY),
     Sig[CheckOverflow](CHECK_OVERFLOW),
+    Sig[MakeDecimal](MAKE_DECIMAL),
     Sig[PromotePrecision](PROMOTE_PRECISION),
     // Decimal
     Sig[UnscaledValue](UNSCALED_VALUE)
