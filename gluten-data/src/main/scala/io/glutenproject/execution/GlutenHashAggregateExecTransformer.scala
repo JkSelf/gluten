@@ -35,7 +35,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.internal.SQLConf
-import org.apache.spark.sql.types.{BooleanType, DecimalType, DoubleType, LongType}
+import org.apache.spark.sql.types.{BooleanType, DecimalType, DoubleType, IntegerType, LongType}
 
 case class GlutenHashAggregateExecTransformer(
     requiredChildDistributionExpressions: Option[Seq[Expression]],
@@ -126,7 +126,9 @@ case class GlutenHashAggregateExecTransformer(
           // Select sum from Velox Struct.
           expressionNodes.add(ExpressionBuilder.makeSelection(colIdx, 0))
           // Select isEmpty from Velox Struct.
-          expressionNodes.add(ExpressionBuilder.makeSelection(colIdx, 1))
+          expressionNodes.add(ExpressionBuilder
+            .makeCast(ConverterUtils.getTypeNode(BooleanType, nullable = true),
+              ExpressionBuilder.makeSelection(colIdx, 1), SQLConf.get.ansiEnabled))
           colIdx += 1
         case _ =>
           expressionNodes.add(ExpressionBuilder.makeSelection(colIdx))
@@ -163,7 +165,7 @@ case class GlutenHashAggregateExecTransformer(
         structTypeNodes.add(ConverterUtils.getTypeNode(DoubleType, nullable = true))
       case sum: Sum if sum.dataType.isInstanceOf[DecimalType] =>
         structTypeNodes.add(ConverterUtils.getTypeNode(sum.dataType, nullable = true))
-        structTypeNodes.add(ConverterUtils.getTypeNode(BooleanType, nullable = false))
+        structTypeNodes.add(ConverterUtils.getTypeNode(IntegerType, nullable = false))
       case other =>
         throw new UnsupportedOperationException(s"$other is not supported.")
     }
