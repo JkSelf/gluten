@@ -166,11 +166,11 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
   } else
 #endif
   {
-    auto rowlength = offsets_[row_start + batch_rows + 1] - offsets_[row_start];
+    auto rowlength = offsets_[row_start + batch_rows] - offsets_[row_start];
     memset(buffer_address_ + offsets_[row_start], 0, rowlength);
   }
   // fill the row by one column each time
-  for (auto col_index = 0; col_index < num_cols_ - 1; col_index++) {
+  for (auto col_index = 0; col_index < num_cols_ ; col_index++) {
     auto& array = vecs_[col_index];
 
     int64_t field_offset = nullBitsetWidthInBytes_ + (col_index << 3L);
@@ -249,7 +249,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
             // write the offset and size
             int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | length;
             *(int64_t*)(buffer_address_ + offsets_[j] + field_offset) = offsetAndSize;
-            buffer_cursor_[j] += length; // RoundNumberOfBytesToNearestWord(length);
+            buffer_cursor_[j] += RoundNumberOfBytesToNearestWord(length);
           }
           break;
         }
@@ -395,7 +395,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
               // write the offset and size
               int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | length;
               *(int64_t*)(buffer_address_ + offsets_[j] + field_offset) = offsetAndSize;
-              buffer_cursor_[j] += length; // RoundNumberOfBytesToNearestWord(length);
+              buffer_cursor_[j] += RoundNumberOfBytesToNearestWord(length);
             } else {
               SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
             }
@@ -457,7 +457,7 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
   std::vector<facebook::velox::VectorPtr>& arrays = vecs_;
   std::vector<const uint8_t*> dataptrs;
 
-  dataptrs.resize(num_cols_ + 1);
+  dataptrs.resize(num_cols_);
   std::vector<uint8_t> nullvec;
   nullvec.resize(num_cols_, 0);
 
@@ -486,8 +486,6 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
           "Type " + schema_->field(col_index)->type()->name() + " is not supported in VeloxToRow conversion.");
     }
   }
-  // ease prefetch
-  *dataptrs.rbegin() = nullptr;
 
   int32_t i = 0;
 #if 1
