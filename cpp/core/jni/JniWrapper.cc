@@ -63,6 +63,9 @@ static jmethodID serialized_arrow_array_iterator_next;
 static jclass native_columnar_to_row_info_class;
 static jmethodID native_columnar_to_row_info_constructor;
 
+jclass celeborn_partition_pusher_class;
+jmethodID celeborn_push_partition_data_method;
+
 jlong default_memory_allocator_id = -1L;
 
 static ConcurrentMap<std::shared_ptr<ColumnarToRowConverter>> columnar_to_row_converter_holder_;
@@ -257,7 +260,7 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
   split_result_class = CreateGlobalClassReferenceOrError(env, "Lio/glutenproject/vectorized/SplitResult;");
   split_result_constructor = GetMethodIDOrError(env, split_result_class, "<init>", "(JJJJJJ[J[J)V");
 
-  metrics_builder_class = CreateGlobalClassReferenceOrError(env, "Lio/glutenproject/vectorized/Metrics;");
+  metrics_builder_class = CreateGlobalClassReferenceOrError(env, "Lio/glutenproject/metrics/Metrics;");
 
   metrics_builder_constructor =
       GetMethodIDOrError(env, metrics_builder_class, "<init>", "([J[J[J[J[J[J[J[J[J[JJ[J[J[J[J[J[J[J[J[J[J[J)V");
@@ -285,12 +288,15 @@ jint JNI_OnLoad(JavaVM* vm, void* reserved) {
 
   default_memory_allocator_id = reinterpret_cast<jlong>(DefaultMemoryAllocator().get());
 
+  celeborn_partition_pusher_class =
+      CreateGlobalClassReferenceOrError(env, "Lorg/apache/spark/shuffle/utils/CelebornPartitionPusher;");
+  celeborn_push_partition_data_method =
+      GetMethodIDOrError(env, celeborn_partition_pusher_class, "pushPartitionData", "(I[B)I");
+
   return JNI_VERSION;
 }
 
 void JNI_OnUnload(JavaVM* vm, void* reserved) {
-  std::cerr << "JNI_OnUnload" << std::endl;
-
   result_iterator_holder_.Clear();
   columnar_to_row_converter_holder_.Clear();
   shuffle_splitter_holder_.Clear();
@@ -565,13 +571,12 @@ Java_io_glutenproject_vectorized_NativeColumnarToRowJniWrapper_nativeClose(JNIEn
   JNI_METHOD_END()
 }
 
-JNIEXPORT void JNICALL Java_io_glutenproject_vectorized_NativeRowToColumnarJniWrapper_nativeConvertRowToColumnar(
+JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_NativeRowToColumnarJniWrapper_nativeConvertRowToColumnar(
     JNIEnv* env,
     jobject,
     jlong cSchema,
     jlongArray row_length,
     jlong memory_address,
-    jlong cArray,
     long allocId) {
   JNI_METHOD_START
   if (row_length == nullptr) {
@@ -593,9 +598,13 @@ JNIEXPORT void JNICALL Java_io_glutenproject_vectorized_NativeRowToColumnarJniWr
   auto converter =
       std::make_shared<gluten::RowToColumnarConverter>(schema, num_rows, in_row_length, address, pool.get());
   auto rb = converter->convert();
-  GLUTEN_THROW_NOT_OK(arrow::ExportRecordBatch(*rb, reinterpret_cast<struct ArrowArray*>(cArray)));
+  std::unique_ptr<ArrowSchema> cSchema = std::make_unique<ArrowSchema>();
+  std::unique_ptr<ArrowArray> cArray = std::make_unique<ArrowArray>();
+  GLUTEN_THROW_NOT_OK(arrow::ExportRecordBatch(*rb, cArray.get(), cSchema.get()));
+  auto cb = std::make_shared<ArrowCStructColumnarBatch>(std::move(cSchema), std::move(cArray));
   env->ReleaseLongArrayElements(row_length, in_row_length, JNI_ABORT);
-  JNI_METHOD_END()
+  return gluten_columnarbatch_holder_.Insert(cb);
+  JNI_METHOD_END(-1)
 }
 
 JNIEXPORT jstring JNICALL
@@ -687,7 +696,8 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapp
     jboolean prefer_spill,
     jlong allocator_id,
     jboolean write_schema,
-    jlong firstBatchHandle) {
+    jlong firstBatchHandle,
+    jlong taskAttemptId) {
   JNI_METHOD_START
   if (partitioning_name_jstr == NULL) {
     gluten::JniThrow(std::string("Short partitioning name can't be null"));
@@ -742,23 +752,14 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapp
   jmethodID mid = env->GetStaticMethodID(cls, "currentThread", "()Ljava/lang/Thread;");
   jobject thread = env->CallStaticObjectMethod(cls, mid);
   if (thread == NULL) {
-    std::cout << "Thread.currentThread() return NULL" << std::endl;
+    std::cerr << "Thread.currentThread() return NULL" << std::endl;
   } else {
     jmethodID mid_getid = GetMethodIDOrError(env, cls, "getId", "()J");
     jlong sid = env->CallLongMethod(thread, mid_getid);
     splitOptions.thread_id = (int64_t)sid;
   }
 
-  jclass tc_cls = env->FindClass("org/apache/spark/TaskContext");
-  jmethodID get_tc_mid = env->GetStaticMethodID(tc_cls, "get", "()Lorg/apache/spark/TaskContext;");
-  jobject tc_obj = env->CallStaticObjectMethod(tc_cls, get_tc_mid);
-  if (tc_obj == NULL) {
-    std::cout << "TaskContext.get() return NULL" << std::endl;
-  } else {
-    jmethodID get_tsk_attmpt_mid = GetMethodIDOrError(env, tc_cls, "taskAttemptId", "()J");
-    jlong attmpt_id = env->CallLongMethod(tc_obj, get_tsk_attmpt_mid);
-    splitOptions.task_attempt_id = (int64_t)attmpt_id;
-  }
+  splitOptions.task_attempt_id = (int64_t)taskAttemptId;
   splitOptions.batch_compress_threshold = batch_compress_threshold;
 
   auto backend = gluten::CreateBackend();
@@ -767,6 +768,80 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapp
 
   return shuffle_splitter_holder_.Insert(splitter);
 
+  JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapper_nativeMakeForCeleborn(
+    JNIEnv* env,
+    jobject,
+    jstring partitioning_name_jstr,
+    jint num_partitions,
+    jlong offheap_per_task,
+    jint buffer_size,
+    jstring compression_type_jstr,
+    jint batch_compress_threshold,
+    jint push_buffer_max_size,
+    jobject celeborn_partition_pusher,
+    jlong allocator_id,
+    jlong firstBatchHandle,
+    jlong taskAttemptId) {
+  JNI_METHOD_START
+  if (partitioning_name_jstr == NULL) {
+    gluten::JniThrow(std::string("Short partitioning name can't be null"));
+    return 0;
+  }
+  auto partitioning_name_c = env->GetStringUTFChars(partitioning_name_jstr, JNI_FALSE);
+  auto partitioning_name = std::string(partitioning_name_c);
+  env->ReleaseStringUTFChars(partitioning_name_jstr, partitioning_name_c);
+  auto splitOptions = SplitOptions::Defaults();
+  splitOptions.buffered_write = true;
+  splitOptions.is_celeborn = true;
+  if (buffer_size > 0) {
+    splitOptions.buffer_size = buffer_size;
+  }
+  if (push_buffer_max_size > 0) {
+    splitOptions.push_buffer_max_size = push_buffer_max_size;
+  }
+  splitOptions.offheap_per_task = offheap_per_task;
+  if (compression_type_jstr != NULL) {
+    auto compression_type_result = GetCompressionType(env, compression_type_jstr);
+    if (compression_type_result.status().ok()) {
+      splitOptions.compression_type = compression_type_result.MoveValueUnsafe();
+    }
+  }
+
+  auto* allocator = reinterpret_cast<MemoryAllocator*>(allocator_id);
+  if (allocator == nullptr) {
+    gluten::JniThrow("Memory pool does not exist or has been closed");
+  }
+  splitOptions.memory_pool = AsWrappedArrowMemoryPool(allocator);
+  jclass cls = env->FindClass("java/lang/Thread");
+  jmethodID mid = env->GetStaticMethodID(cls, "currentThread", "()Ljava/lang/Thread;");
+  jobject thread = env->CallStaticObjectMethod(cls, mid);
+  if (thread == NULL) {
+    std::cout << "Thread.currentThread() return NULL" << std::endl;
+  } else {
+    jmethodID mid_getid = GetMethodIDOrError(env, cls, "getId", "()J");
+    jlong sid = env->CallLongMethod(thread, mid_getid);
+    splitOptions.thread_id = (int64_t)sid;
+  }
+
+  splitOptions.task_attempt_id = (int64_t)taskAttemptId;
+  splitOptions.batch_compress_threshold = batch_compress_threshold;
+  JavaVM* vm;
+  if (env->GetJavaVM(&vm) != JNI_OK) {
+    gluten::JniThrow("Unable to get JavaVM instance");
+  }
+  std::shared_ptr<CelebornClient> celeborn_client =
+      std::make_shared<CelebornClient>(vm, celeborn_partition_pusher, celeborn_push_partition_data_method);
+
+  splitOptions.celeborn_client = std::move(celeborn_client);
+
+  auto backend = gluten::CreateBackend();
+  auto batch = gluten_columnarbatch_holder_.Lookup(firstBatchHandle);
+  auto splitter = backend->makeSplitter(partitioning_name, num_partitions, std::move(splitOptions), batch->GetType());
+
+  return shuffle_splitter_holder_.Insert(splitter);
   JNI_METHOD_END(-1L)
 }
 
@@ -783,8 +858,26 @@ JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapp
     gluten::JniThrow(error_message);
   }
   jlong spilled_size;
-  gluten::JniAssertOkOrThrow(splitter->SpillFixedSize(size, &spilled_size), "(shuffle) nativeSpill: spill failed");
+  gluten::JniAssertOkOrThrow(splitter->EvictFixedSize(size, &spilled_size), "(shuffle) nativeSpill: spill failed");
   return spilled_size;
+  JNI_METHOD_END(-1L)
+}
+
+JNIEXPORT jlong JNICALL Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapper_nativePush(
+    JNIEnv* env,
+    jobject,
+    jlong splitter_id,
+    jlong size,
+    jboolean callBySelf) {
+  JNI_METHOD_START
+  auto splitter = shuffle_splitter_holder_.Lookup(splitter_id);
+  if (!splitter) {
+    std::string error_message = "Invalid splitter id " + std::to_string(splitter_id);
+    gluten::JniThrow(error_message);
+  }
+  jlong pushed_size;
+  gluten::JniAssertOkOrThrow(splitter->EvictFixedSize(size, &pushed_size), "(shuffle) nativePush: push failed");
+  return pushed_size;
   JNI_METHOD_END(-1L)
 }
 
@@ -835,10 +928,10 @@ Java_io_glutenproject_vectorized_ShuffleSplitterJniWrapper_stop(JNIEnv* env, job
       split_result_constructor,
       0L,
       splitter->TotalWriteTime(),
-      splitter->TotalSpillTime(),
+      splitter->TotalEvictTime(),
       splitter->TotalCompressTime(),
       splitter->TotalBytesWritten(),
-      splitter->TotalBytesSpilled(),
+      splitter->TotalBytesEvicted(),
       partition_length_arr,
       raw_partition_length_arr);
 

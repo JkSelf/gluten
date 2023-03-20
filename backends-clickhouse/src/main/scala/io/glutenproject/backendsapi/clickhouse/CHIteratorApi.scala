@@ -17,17 +17,19 @@
 package io.glutenproject.backendsapi.clickhouse
 
 import io.glutenproject.{GlutenConfig, GlutenNumaBindingInfo}
-import io.glutenproject.backendsapi.IIteratorApi
+import io.glutenproject.backendsapi.IteratorApi
 import io.glutenproject.execution._
 import io.glutenproject.memory.{GlutenMemoryConsumer, TaskMemoryMetrics}
 import io.glutenproject.memory.alloc._
+import io.glutenproject.metrics.IMetrics
 import io.glutenproject.substrait.plan.PlanNode
 import io.glutenproject.substrait.rel.{ExtensionTableBuilder, LocalFilesBuilder}
 import io.glutenproject.substrait.rel.LocalFilesNode.ReadFileFormat
 import io.glutenproject.utils.{LogLevelUtil, SubstraitPlanPrinterUtil}
 import io.glutenproject.vectorized._
 
-import org.apache.spark.{InterruptibleIterator, SparkConf, SparkContext, TaskContext}
+import org.apache.spark.{InterruptibleIterator, Partition, SparkConf, SparkContext, TaskContext}
+import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.internal.Logging
 import org.apache.spark.memory.TaskMemoryManager
 import org.apache.spark.rdd.RDD
@@ -35,6 +37,7 @@ import org.apache.spark.softaffinity.SoftAffinityUtil
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.connector.read.InputPartition
 import org.apache.spark.sql.execution.datasources.FilePartition
+import org.apache.spark.sql.execution.joins.BuildSideRelation
 import org.apache.spark.sql.execution.metric.SQLMetric
 import org.apache.spark.sql.utils.OASPackageBridge.InputMetricsWrapper
 import org.apache.spark.sql.vectorized.ColumnarBatch
@@ -43,7 +46,7 @@ import java.util.concurrent.TimeUnit
 
 import scala.collection.JavaConverters._
 
-class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
+class CHIteratorApi extends IteratorApi with Logging with LogLevelUtil {
 
   /**
    * Generate native row partition.
@@ -122,10 +125,19 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
           val beforeConcat = System.nanoTime
           operator.mergeBlock(c)
 
-          while (!operator.isFull && iter.hasNext) {
-            val cb = iter.next();
-            numInputBatches += 1;
-            operator.mergeBlock(cb)
+          concatTime += System.nanoTime() - beforeConcat
+          var hasNext = true;
+          while (!operator.isFull && hasNext) {
+            val beforeNext = System.nanoTime
+            hasNext = iter.hasNext
+            if (hasNext) {
+              val cb = iter.next();
+              collectTime += System.nanoTime - beforeNext
+              numInputBatches += 1;
+              val beforeConcat = System.nanoTime
+              operator.mergeBlock(cb)
+              concatTime += System.nanoTime() - beforeConcat
+            }
           }
           val res = operator.release().toColumnarBatch
           CHNativeBlock
@@ -134,7 +146,6 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
               block => {
                 numOutputRows += block.numRows();
                 numOutputBatches += 1;
-                concatTime += System.nanoTime() - beforeConcat
               })
           res
         }
@@ -159,7 +170,7 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
       context: TaskContext,
       pipelineTime: SQLMetric,
       updateInputMetrics: (InputMetricsWrapper) => Unit,
-      updateNativeMetrics: Metrics => Unit,
+      updateNativeMetrics: IMetrics => Unit,
       inputIterators: Seq[Iterator[ColumnarBatch]] = Seq()): Iterator[ColumnarBatch] = {
     val beforeBuild = System.nanoTime()
     val transKernel = new CHNativeExpressionEvaluator()
@@ -173,13 +184,23 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
     pipelineTime += TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
     TaskContext.get().addTaskCompletionListener[Unit](_ => resIter.close())
     val iter = new Iterator[Any] {
+      private val inputMetrics = TaskContext.get().taskMetrics().inputMetrics
+      private var inputRowCount = 0L
+      private var inputVectorCount = 0L
 
       override def hasNext: Boolean = {
-        resIter.hasNext
+        val res = resIter.hasNext
+        if (!res) {
+          // updateNativeMetrics(resIter.getMetrics)
+          // updateInputMetrics(inputMetrics)
+        }
+        res
       }
 
       override def next(): Any = {
         val cb = resIter.next()
+        inputVectorCount += 1
+        inputRowCount += cb.numRows()
         cb
       }
     }
@@ -201,7 +222,7 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
       outputAttributes: Seq[Attribute],
       rootNode: PlanNode,
       pipelineTime: SQLMetric,
-      updateNativeMetrics: Metrics => Unit,
+      updateNativeMetrics: IMetrics => Unit,
       buildRelationBatchHolder: Seq[ColumnarBatch]): Iterator[ColumnarBatch] = {
     // scalastyle:on argcount
     GlutenConfig.getConf
@@ -219,7 +240,11 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
     pipelineTime += TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - beforeBuild)
     val resIter = new Iterator[ColumnarBatch] {
       override def hasNext: Boolean = {
-        nativeIterator.hasNext
+        val res = nativeIterator.hasNext
+        if (!res) {
+          // updateNativeMetrics(nativeIterator.getMetrics)
+        }
+        res
       }
 
       override def next(): ColumnarBatch = {
@@ -294,5 +319,32 @@ class CHIteratorApi extends IIteratorApi with Logging with LogLevelUtil {
       numOutputRows,
       numOutputBatches,
       scanTime)
+  }
+
+  /** Compute for BroadcastBuildSideRDD */
+  override def genBroadcastBuildSideIterator(
+      split: Partition,
+      context: TaskContext,
+      broadcasted: Broadcast[BuildSideRelation],
+      broadCastContext: BroadCastHashJoinContext): Iterator[ColumnarBatch] = {
+    if (
+      !CHBroadcastBuildSideRDD.buildSideRelationCache
+        .containsKey(broadCastContext.buildHashTableId)
+    ) {
+      CHBroadcastBuildSideRDD.buildSideRelationCache.synchronized {
+        if (
+          !CHBroadcastBuildSideRDD.buildSideRelationCache
+            .containsKey(broadCastContext.buildHashTableId)
+        ) {
+          // Build the BHJ build table
+          broadcasted.value.asReadOnlyCopy(broadCastContext)
+          CHBroadcastBuildSideRDD.buildSideRelationCache.put(
+            broadCastContext.buildHashTableId,
+            1L
+          )
+        }
+      }
+    }
+    genCloseableColumnBatchIterator(Iterator.empty)
   }
 }

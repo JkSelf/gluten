@@ -22,7 +22,9 @@ import com.google.protobuf.Any
 import io.glutenproject.GlutenConfig
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.expression.{ConverterUtils, ExpressionConverter, ExpressionTransformer}
+import io.glutenproject.extension.GlutenPlan
 import io.glutenproject.extension.columnar.TransformHints
+import io.glutenproject.metrics.MetricsUpdater
 import io.glutenproject.substrait.SubstraitContext
 import io.glutenproject.substrait.`type`.{TypeBuilder, TypeNode}
 import io.glutenproject.substrait.expression.ExpressionNode
@@ -30,14 +32,12 @@ import io.glutenproject.substrait.extensions.ExtensionBuilder
 import io.glutenproject.substrait.plan.PlanBuilder
 import io.glutenproject.substrait.rel.{RelBuilder, RelNode}
 import io.glutenproject.utils.BindReferencesUtil
-import io.glutenproject.vectorized.OperatorMetrics
 import org.apache.spark.SparkConf
 import org.apache.spark.internal.Logging
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.datasources.v2.{BatchScanExec, DataSourceV2ScanExecBase, FileScan}
-import org.apache.spark.sql.execution.metric.{SQLMetric, SQLMetrics}
 import org.apache.spark.sql.utils.StructTypeFWD
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
@@ -47,41 +47,13 @@ import scala.collection.JavaConverters._
 abstract class FilterExecBaseTransformer(val cond: Expression,
                                          val input: SparkPlan) extends UnaryExecNode
   with TransformSupport
+  with GlutenPlan
   with PredicateHelper
   with AliasAwareOutputPartitioning
   with Logging {
 
-  override lazy val metrics = Map(
-    "outputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
-    "outputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
-    "outputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
-    "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "totaltime of filter"),
-    "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
-    "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
-    "numMemoryAllocations" -> SQLMetrics.createMetric(
-      sparkContext, "number of memory allocations"))
-
-  object MetricsUpdaterImpl extends MetricsUpdater {
-    val outputRows: SQLMetric = longMetric("outputRows")
-    val outputVectors: SQLMetric = longMetric("outputVectors")
-    val outputBytes: SQLMetric = longMetric("outputBytes")
-    val cpuCount: SQLMetric = longMetric("cpuCount")
-    val wallNanos: SQLMetric = longMetric("wallNanos")
-    val peakMemoryBytes: SQLMetric = longMetric("peakMemoryBytes")
-    val numMemoryAllocations: SQLMetric = longMetric("numMemoryAllocations")
-
-    override def updateNativeMetrics(operatorMetrics: OperatorMetrics): Unit = {
-      if (operatorMetrics != null) {
-        outputRows += operatorMetrics.outputRows
-        outputVectors += operatorMetrics.outputVectors
-        outputBytes += operatorMetrics.outputBytes
-        cpuCount += operatorMetrics.cpuCount
-        wallNanos += operatorMetrics.wallNanos
-        peakMemoryBytes += operatorMetrics.peakMemoryBytes
-        numMemoryAllocations += operatorMetrics.numMemoryAllocations
-      }
-    }
-  }
+  override lazy val metrics =
+    BackendsApiManager.getMetricsApiInstance.genFilterTransformerMetrics(sparkContext)
 
   val sparkConf: SparkConf = sparkContext.getConf
   // Split out all the IsNotNulls from condition.
@@ -122,9 +94,8 @@ abstract class FilterExecBaseTransformer(val cond: Expression,
       this
   }
 
-  override def metricsUpdater(): MetricsUpdater = MetricsUpdaterImpl
-
-  override def getChild: SparkPlan = child
+  override def metricsUpdater(): MetricsUpdater =
+    BackendsApiManager.getMetricsApiInstance.genFilterTransformerMetricsUpdater(metrics)
 
   def doTransform(context: SubstraitContext): TransformContext
 
@@ -262,41 +233,14 @@ case class FilterExecTransformer(condition: Expression, child: SparkPlan)
 case class ProjectExecTransformer(projectList: Seq[NamedExpression],
                                   child: SparkPlan) extends UnaryExecNode
   with TransformSupport
+  with GlutenPlan
   with PredicateHelper
   with AliasAwareOutputPartitioning
   with Logging {
 
-  override lazy val metrics = Map(
-    "outputRows" -> SQLMetrics.createMetric(sparkContext, "number of output rows"),
-    "outputVectors" -> SQLMetrics.createMetric(sparkContext, "number of output vectors"),
-    "outputBytes" -> SQLMetrics.createSizeMetric(sparkContext, "number of output bytes"),
-    "wallNanos" -> SQLMetrics.createNanoTimingMetric(sparkContext, "totaltime of project"),
-    "cpuCount" -> SQLMetrics.createMetric(sparkContext, "cpu wall time count"),
-    "peakMemoryBytes" -> SQLMetrics.createSizeMetric(sparkContext, "peak memory bytes"),
-    "numMemoryAllocations" -> SQLMetrics.createMetric(
-      sparkContext, "number of memory allocations"))
+  override lazy val metrics =
+    BackendsApiManager.getMetricsApiInstance.genProjectTransformerMetrics(sparkContext)
 
-  object MetricsUpdaterImpl extends MetricsUpdater {
-    val outputRows: SQLMetric = longMetric("outputRows")
-    val outputVectors: SQLMetric = longMetric("outputVectors")
-    val outputBytes: SQLMetric = longMetric("outputBytes")
-    val cpuCount: SQLMetric = longMetric("cpuCount")
-    val wallNanos: SQLMetric = longMetric("wallNanos")
-    val peakMemoryBytes: SQLMetric = longMetric("peakMemoryBytes")
-    val numMemoryAllocations: SQLMetric = longMetric("numMemoryAllocations")
-
-    override def updateNativeMetrics(operatorMetrics: OperatorMetrics): Unit = {
-      if (operatorMetrics != null) {
-        outputRows += operatorMetrics.outputRows
-        outputVectors += operatorMetrics.outputVectors
-        outputBytes += operatorMetrics.outputBytes
-        cpuCount += operatorMetrics.cpuCount
-        wallNanos += operatorMetrics.wallNanos
-        peakMemoryBytes += operatorMetrics.peakMemoryBytes
-        numMemoryAllocations += operatorMetrics.numMemoryAllocations
-      }
-    }
-  }
   val sparkConf: SparkConf = sparkContext.getConf
 
   override def supportsColumnar: Boolean = GlutenConfig.getConf.enableColumnarIterator
@@ -310,7 +254,7 @@ case class ProjectExecTransformer(projectList: Seq[NamedExpression],
         substraitContext, projectList, child.output, operatorId, null, validation = true)
     } catch {
       case e: Throwable =>
-        logDebug(s"Validation failed for ${this.getClass.toString} due to ${e.getMessage} stack:${e.printStackTrace()}")
+        logValidateFailure(s"Validation failed for ${this.getClass.toString} due to ${e.getMessage}", e)
         return false
     }
     // Then, validate the generated plan in native engine.
@@ -348,9 +292,8 @@ case class ProjectExecTransformer(projectList: Seq[NamedExpression],
       this
   }
 
-  override def metricsUpdater(): MetricsUpdater = MetricsUpdaterImpl
-
-  override def getChild: SparkPlan = child
+  override def metricsUpdater(): MetricsUpdater =
+    BackendsApiManager.getMetricsApiInstance.genProjectTransformerMetricsUpdater(metrics)
 
   override def doTransform(context: SubstraitContext): TransformContext = {
     val childCtx = child match {
@@ -420,7 +363,8 @@ case class ProjectExecTransformer(projectList: Seq[NamedExpression],
       }
       val extensionNode = ExtensionBuilder.makeAdvancedExtension(
         Any.pack(TypeBuilder.makeStruct(false, inputTypeNodeList).toProtobuf))
-      RelBuilder.makeProjectRel(input, projExprNodeList, extensionNode, context, operatorId, emitStartIndex)
+      RelBuilder.makeProjectRel(
+        input, projExprNodeList, extensionNode, context, operatorId, emitStartIndex)
     }
   }
 
@@ -440,7 +384,7 @@ case class ProjectExecTransformer(projectList: Seq[NamedExpression],
 }
 
 // An alternatives for UnionExec.
-case class UnionExecTransformer(children: Seq[SparkPlan]) extends SparkPlan {
+case class UnionExecTransformer(children: Seq[SparkPlan]) extends SparkPlan with GlutenPlan {
   override def supportsColumnar: Boolean = true
 
   override def output: Seq[Attribute] = {

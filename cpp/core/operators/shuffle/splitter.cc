@@ -35,30 +35,6 @@
 
 namespace gluten {
 
-void StatCreateSplitter(SPLITTER_TYPE type) {
-  static unsigned int stat[SPLITTER_TOTAL + 1] = {};
-
-  stat[type]++;
-  stat[SPLITTER_TOTAL]++;
-
-  static unsigned x = 10;
-
-  if (stat[SPLITTER_TOTAL] % x == 0) {
-    std::cout << "create splitter stat, total=" << stat[SPLITTER_TOTAL] << std::endl;
-
-    std::cout << " hash=" << stat[SPLITTER_HASH] << " round-robin=" << stat[SPLITTER_ROUND_ROBIN]
-              << " range=" << stat[SPLITTER_RANGE] << " single=" << stat[SPLITTER_SINGLE] << std::endl;
-
-    std::cout << " velox hash=" << stat[VELOX_SPLITTER_HASH]
-              << " velox round-robin=" << stat[VELOX_SPLITTER_ROUND_ROBIN]
-              << " velox range=" << stat[VELOX_SPLITTER_RANGE] << " velox single=" << stat[VELOX_SPLITTER_SINGLE]
-              << std::endl;
-
-    if (x <= 100)
-      x += 10;
-  }
-}
-
 using arrow::internal::checked_cast;
 
 #ifndef SPLIT_BUFFER_SIZE
@@ -223,16 +199,12 @@ class Splitter::PartitionWriter {
 arrow::Result<std::shared_ptr<Splitter>>
 Splitter::Make(const std::string& short_name, int num_partitions, SplitOptions options) {
   if (short_name == "hash") {
-    StatCreateSplitter(SPLITTER_HASH);
     return HashSplitter::Create(num_partitions, std::move(options));
   } else if (short_name == "rr") {
-    StatCreateSplitter(SPLITTER_ROUND_ROBIN);
     return RoundRobinSplitter::Create(num_partitions, std::move(options));
   } else if (short_name == "range") {
-    StatCreateSplitter(SPLITTER_RANGE);
     return FallbackRangeSplitter::Create(num_partitions, std::move(options));
   } else if (short_name == "single") {
-    StatCreateSplitter(SPLITTER_SINGLE);
     return SinglePartSplitter::Create(1, std::move(options));
   }
   return arrow::Status::NotImplemented("Partitioning " + short_name + " not supported yet.");
@@ -418,7 +390,7 @@ arrow::Status Splitter::Stop() {
       TIME_NANO_OR_RAISE(total_write_time_, writer->WriteCachedRecordBatchAndClose());
       partition_lengths_[pid] = writer->partition_length;
       total_bytes_written_ += writer->partition_length;
-      total_bytes_spilled_ += writer->bytes_spilled;
+      total_bytes_evicted_ += writer->bytes_spilled;
     } else {
       partition_lengths_[pid] = 0;
     }
@@ -689,27 +661,27 @@ arrow::Status Splitter::AllocateNew(int32_t partition_id, int32_t new_size) {
   int32_t retry = 0;
   while (status.IsOutOfMemory() && retry < 3) {
     // retry allocate
-    std::cout << status.ToString() << std::endl
+    std::cerr << status.ToString() << std::endl
               << std::to_string(++retry) << " retry to allocate new buffer for partition "
               << std::to_string(partition_id) << std::endl;
     int64_t spilled_size;
     ARROW_ASSIGN_OR_RAISE(auto partition_to_spill, SpillLargestPartition(&spilled_size));
     if (partition_to_spill == -1) {
-      std::cout << "Failed to allocate new buffer for partition " << std::to_string(partition_id)
+      std::cerr << "Failed to allocate new buffer for partition " << std::to_string(partition_id)
                 << ". No partition buffer to spill." << std::endl;
       return status;
     }
     status = AllocatePartitionBuffers(partition_id, new_size);
   }
   if (status.IsOutOfMemory()) {
-    std::cout << "Failed to allocate new buffer for partition " << std::to_string(partition_id) << ". Out of memory."
+    std::cerr << "Failed to allocate new buffer for partition " << std::to_string(partition_id) << ". Out of memory."
               << std::endl;
   }
   return status;
 }
 
 // call from memory management
-arrow::Status Splitter::SpillFixedSize(int64_t size, int64_t* actual) {
+arrow::Status Splitter::EvictFixedSize(int64_t size, int64_t* actual) {
   int64_t current_spilled = 0L;
   int32_t try_count = 0;
   while (current_spilled < size && try_count < 5) {
@@ -729,7 +701,7 @@ arrow::Status Splitter::SpillPartition(int32_t partition_id) {
   if (partition_writer_[partition_id] == nullptr) {
     partition_writer_[partition_id] = std::make_shared<PartitionWriter>(this, partition_id);
   }
-  TIME_NANO_OR_RAISE(total_spill_time_, partition_writer_[partition_id]->Spill());
+  TIME_NANO_OR_RAISE(total_evict_time_, partition_writer_[partition_id]->Spill());
 
   // reset validity buffer after spill
   std::for_each(
@@ -1201,7 +1173,7 @@ arrow::Status Splitter::SplitBinaryType(
         dst_addrs[pid].valueptr = value_buffer->mutable_data();
         dst_addrs[pid].value_capacity = capacity;
         dst_value_base = dst_addrs[pid].valueptr + value_offset - strlength;
-        std::cout << "Split value buffer resized colid = " << binary_idx << " dst_start " << dst_offset_base[x]
+        std::cerr << "Split value buffer resized colid = " << binary_idx << " dst_start " << dst_offset_base[x]
                   << " dst_end " << dst_offset_base[x + 1] << " old size = " << old_capacity
                   << " new size = " << capacity << " row = " << partition_buffer_idx_base_[pid]
                   << " strlen = " << strlength << std::endl;
@@ -1389,7 +1361,6 @@ arrow::Status SinglePartSplitter::Split(ColumnarBatch* batch) {
     RETURN_NOT_OK(InitColumnType());
   }
   RETURN_NOT_OK(CacheRecordBatch(0, *rb));
-
   EVAL_END("split", options_.thread_id, options_.task_attempt_id)
   return arrow::Status::OK();
 }
@@ -1419,7 +1390,7 @@ arrow::Status SinglePartSplitter::Stop() {
       TIME_NANO_OR_RAISE(total_write_time_, writer->WriteCachedRecordBatchAndClose());
       partition_lengths_[pid] = writer->partition_length;
       total_bytes_written_ += writer->partition_length;
-      total_bytes_spilled_ += writer->bytes_spilled;
+      total_bytes_evicted_ += writer->bytes_spilled;
     } else {
       partition_lengths_[pid] = 0;
     }

@@ -117,6 +117,12 @@ class GlutenConfig(conf: SQLConf) extends Logging {
       .getConfString("spark.shuffle.manager", "sort")
       .equals("org.apache.spark.shuffle.sort.ColumnarShuffleManager")
 
+  // whether to use CelebornShuffleManager
+  def isUseCelebornShuffleManager: Boolean =
+    conf
+      .getConfString("spark.shuffle.manager", "sort")
+      .equals("org.apache.spark.shuffle.celeborn.CelebornShuffleManager")
+
   // enable or disable columnar exchange
   def enableColumnarShuffle: Boolean =
     conf
@@ -236,6 +242,12 @@ class GlutenConfig(conf: SQLConf) extends Logging {
 
   def substraitPlanLogLevel: String =
     conf.getConfString("spark.gluten.sql.substrait.plan.logLevel", "DEBUG")
+
+  def validateFailureLogLevel: String =
+    conf.getConfString("spark.gluten.sql.validate.failure.logLevel", "WARN")
+
+  def printStackOnValidateFailure: Boolean =
+    conf.getConfString("spark.gluten.sql.validate.failure.printStack", "false").toBoolean
 
   def debug: Boolean = conf.getConfString("spark.gluten.sql.debug", "false").toBoolean
   def taskStageId: Int = conf.getConfString("spark.gluten.sql.benchmark_task.stageId", "1").toInt

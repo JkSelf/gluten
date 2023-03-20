@@ -17,8 +17,9 @@
 
 package io.glutenproject.execution
 
+import io.glutenproject.extension.GlutenPlan
+import io.glutenproject.metrics.{MetricsUpdater, NoopMetricsUpdater}
 import io.glutenproject.substrait.SubstraitContext
-
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.catalyst.InternalRow
@@ -28,7 +29,7 @@ import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.vectorized.ColumnarBatch
 
 case class CoalesceExecTransformer(numPartitions: Int, child: SparkPlan)
-  extends UnaryExecNode with TransformSupport {
+  extends UnaryExecNode with TransformSupport with GlutenPlan {
 
   override def supportsColumnar: Boolean = true
 
@@ -53,10 +54,6 @@ case class CoalesceExecTransformer(numPartitions: Int, child: SparkPlan)
       this
   }
 
-  override def getChild: SparkPlan = {
-    throw new UnsupportedOperationException(s"This operator doesn't support getChild.")
-  }
-
   override def doValidate(): Boolean = false
 
   override def doTransform(context: SubstraitContext): TransformContext = {
@@ -74,7 +71,7 @@ case class CoalesceExecTransformer(numPartitions: Int, child: SparkPlan)
   override protected def withNewChildInternal(newChild: SparkPlan): CoalesceExecTransformer =
     copy(child = newChild)
 
-  override def metricsUpdater(): MetricsUpdater = NoopMetricsUpdater
+  override def metricsUpdater(): MetricsUpdater = new NoopMetricsUpdater
 }
 
 object CoalesceExecTransformer {
