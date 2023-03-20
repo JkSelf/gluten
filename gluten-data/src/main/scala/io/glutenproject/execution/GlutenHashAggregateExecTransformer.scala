@@ -145,7 +145,7 @@ case class GlutenHashAggregateExecTransformer(
         groupingExpressions.size + aggregateExpressions.size)
     }
   }
-q
+
   /**
    * Return the intermediate type node of a partial aggregation in Velox.
    * @param aggregateFunction The aggregation function.
