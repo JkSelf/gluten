@@ -488,7 +488,6 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
   }
 
   int32_t i = 0;
-#if 1
   // iterate 32K each batch
   auto batch_num = 32 * 1024 / (16 + avg_rowsize_);
   batch_num = (batch_num == 0 || batch_num > num_rows_) ? num_rows_ : batch_num;
@@ -496,7 +495,7 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
   for (; i + batch_num < num_rows_; i += batch_num) {
     RETURN_NOT_OK(FillBuffer(i, batch_num, dataptrs, nullvec, typevec, typewidth));
   }
-#endif
+
   if (i < num_rows_)
     RETURN_NOT_OK(FillBuffer(i, num_rows_ - i, dataptrs, nullvec, typevec, typewidth));
 
