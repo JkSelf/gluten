@@ -191,17 +191,11 @@ case class GlutenHashAggregateExecTransformer(
               getIntermediateTypeNode(aggregateFunction))
             aggregateNodeList.add(partialNode)
           case Final =>
-            val dataType = aggregateFunction match {
-              case avg: Average =>
-                GlutenDecimalUtil.getAvgSumDataType(avg)
-              case _ =>
-                aggregateFunction.dataType
-            }
             val aggFunctionNode = ExpressionBuilder.makeAggregateFunction(
               AggregateFunctionsBuilder.create(args, aggregateFunction),
               childrenNodeList,
               modeToKeyWord(aggregateMode),
-              ConverterUtils.getTypeNode(dataType, aggregateFunction.nullable))
+              ConverterUtils.getTypeNode(aggregateFunction.dataType, aggregateFunction.nullable))
             aggregateNodeList.add(aggFunctionNode)
           case other =>
             throw new UnsupportedOperationException(s"$other is not supported.")
