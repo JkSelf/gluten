@@ -39,7 +39,7 @@ class VeloxColumnarToRowTest : public ::testing::Test, public test::VectorTestBa
     ArrowArray arrowArray;
     ArrowSchema arrowSchema;
     ASSERT_NOT_OK(arrow::ExportRecordBatch(rb, &arrowArray, &arrowSchema));
-    auto vp = velox::importFromArrowAsOwner(arrowSchema, arrowArray, gluten::GetDefaultWrappedVeloxMemoryPool());
+    auto vp = velox::importFromArrowAsViewer(arrowSchema, arrowArray, gluten::GetDefaultWrappedVeloxMemoryPool());
     return std::dynamic_pointer_cast<velox::RowVector>(vp);
   }
 };
@@ -95,7 +95,7 @@ TEST_F(VeloxColumnarToRowTest, Int_64) {
       std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
 
   auto rb = row_to_columnar_converter->convert();
-  std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 
@@ -141,8 +141,8 @@ TEST_F(VeloxColumnarToRowTest, basic) {
       std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
 
   auto rb = row_to_columnar_converter->convert();
-  std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
-  std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  // std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 
@@ -181,7 +181,7 @@ TEST_F(VeloxColumnarToRowTest, Int_64_twoColumn) {
       std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
 
   auto rb = row_to_columnar_converter->convert();
-  std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 
@@ -189,7 +189,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int8_int16) {
   auto f_int8 = field("f_int8_a", arrow::int8());
   auto f_int16 = field("f_int16", arrow::int16());
 
-  std::cout << "---------verify f_int8, f_int16---------" << std::endl;
+  // std::cout << "---------verify f_int8, f_int16---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[1, 2]",
       "[1, 2]",
@@ -213,8 +213,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int8_int16) {
       0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -223,7 +223,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int32_int64) {
   auto f_int32 = field("f_int32", arrow::int32());
   auto f_int64 = field("f_int64", arrow::int64());
 
-  std::cout << "---------verify f_int32, f_int64---------" << std::endl;
+  // std::cout << "---------verify f_int32, f_int64---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[1, 2]",
       "[1, 2]",
@@ -247,8 +247,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int32_int64) {
       0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -257,7 +257,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_float_double) {
   auto f_float = field("f_float", arrow::float32());
   auto f_double = field("f_double", arrow::float64());
 
-  std::cout << "---------verify f_float, f_double---------" << std::endl;
+  // std::cout << "---------verify f_float, f_double---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[1.0, 2.0]",
       "[1.0, 2.0]",
@@ -279,8 +279,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_float_double) {
   uint8_t expect_arr[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 240, 63,
                           0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   64};
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -289,7 +289,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_bool_binary) {
   auto f_bool = field("f_bool", arrow::boolean());
   auto f_binary = field("f_binary", arrow::binary());
 
-  std::cout << "---------verify f_bool, f_binary---------" << std::endl;
+  // std::cout << "---------verify f_bool, f_binary---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[false, true]",
       R"(["aa", "bb"])",
@@ -313,8 +313,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_bool_binary) {
       0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 24, 0, 0, 0, 98, 98, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -322,7 +322,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_bool_binary) {
 TEST_F(VeloxColumnarToRowTest, Buffer_decimal_string) {
   auto f_string = field("f_string", arrow::utf8());
 
-  std::cout << "---------verify f_string---------" << std::endl;
+  // std::cout << "---------verify f_string---------" << std::endl;
   const std::vector<std::string> input_data = {R"(["aa", "bb"])"};
 
   auto schema = arrow::schema({f_string});
@@ -341,8 +341,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_decimal_string) {
   uint8_t expect_arr[] = {0,  0,  0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 16, 0, 0, 0,
                           97, 97, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,  0, 0};
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -350,7 +350,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_decimal_string) {
 TEST_F(VeloxColumnarToRowTest, Buffer_int64_int64_with_null) {
   auto f_int64 = field("f_int64", arrow::int64());
 
-  std::cout << "---------verify f_int64, f_int64 with null ---------" << std::endl;
+  // std::cout << "---------verify f_int64, f_int64 with null ---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[null,2]",
       "[null,2]",
@@ -374,8 +374,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_int64_int64_with_null) {
       0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -384,7 +384,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_string) {
   auto f_binary = field("f_binary", arrow::binary());
   auto f_string = field("f_string", arrow::utf8());
 
-  std::cout << "---------verify f_string---------" << std::endl;
+  // std::cout << "---------verify f_string---------" << std::endl;
   const std::vector<std::string> input_data = {R"(["aa", "bb"])"};
 
   auto schema = arrow::schema({f_string});
@@ -405,8 +405,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_string) {
       0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 16, 0, 0, 0, 98, 98, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -415,7 +415,7 @@ TEST_F(VeloxColumnarToRowTest, Buffer_bool) {
   auto f_bool = field("f_bool", arrow::boolean());
   auto f_binary = field("f_binary", arrow::binary());
 
-  std::cout << "---------verify f_bool---------" << std::endl;
+  // std::cout << "---------verify f_bool---------" << std::endl;
   const std::vector<std::string> input_data = {
       "[false, true]",
 
@@ -439,8 +439,8 @@ TEST_F(VeloxColumnarToRowTest, Buffer_bool) {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
   };
   for (int i = 0; i < sizeof(expect_arr); i++) {
-    std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
-    std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
+    // std::cout << "*(address+" << i << "): " << (uint16_t) * (address + i) << std::endl;
+    // std::cout << "*(expect_arr+" << i << "): " << (uint16_t) * (expect_arr + i) << std::endl;
     ASSERT_EQ(*(address + i), *(expect_arr + i));
   }
 }
@@ -476,7 +476,7 @@ TEST_F(VeloxColumnarToRowTest, _allTypes) {
   uint8_t* address = columnarToRowConverter->GetBufferAddress();
   auto length_vec = columnarToRowConverter->GetLengths();
   for (int i = 0; i < length_vec.size(); i++) {
-    std::cout << "length_vec[" << i << "]:" << length_vec[i] << std::endl;
+    // std::cout << "length_vec[" << i << "]:" << length_vec[i] << std::endl;
   }
 
   long arr[length_vec.size()];
@@ -489,8 +489,8 @@ TEST_F(VeloxColumnarToRowTest, _allTypes) {
       std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
 
   auto rb = row_to_columnar_converter->convert();
-  std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
-  std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  // std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 
@@ -535,7 +535,7 @@ TEST_F(VeloxColumnarToRowTest, _allTypes_18rows) {
   uint8_t* address = columnarToRowConverter->GetBufferAddress();
   auto length_vec = columnarToRowConverter->GetLengths();
   for (int i = 0; i < length_vec.size(); i++) {
-    std::cout << "length_vec[" << i << "]:" << length_vec[i] << std::endl;
+    // std::cout << "length_vec[" << i << "]:" << length_vec[i] << std::endl;
   }
 
   long arr[length_vec.size()];
@@ -548,8 +548,8 @@ TEST_F(VeloxColumnarToRowTest, _allTypes_18rows) {
       std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
 
   auto rb = row_to_columnar_converter->convert();
-  std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
-  std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  // std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 } // namespace gluten

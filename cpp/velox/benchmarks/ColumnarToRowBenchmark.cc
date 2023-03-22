@@ -94,7 +94,7 @@ class GoogleBenchmarkColumnarToRow {
     ArrowArray arrowArray;
     ArrowSchema arrowSchema;
     ASSERT_NOT_OK(arrow::ExportRecordBatch(rb, &arrowArray, &arrowSchema));
-    return velox::importFromArrowAsOwner(arrowSchema, arrowArray, gluten::GetDefaultWrappedVeloxMemoryPool());
+    return velox::importFromArrowAsViewer(arrowSchema, arrowArray, gluten::GetDefaultWrappedVeloxMemoryPool());
   }
 
  protected:
@@ -123,8 +123,8 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     int64_t init_time = 0;
     int64_t write_time = 0;
     int64_t convert_time = 0;
-    int64_t buffer_size=0;
-    
+    int64_t buffer_size = 0;
+
     std::vector<int> local_column_indices;
     local_column_indices.push_back(0);
     local_column_indices.push_back(1);
@@ -151,13 +151,13 @@ class GoogleBenchmarkColumnarToRow_CacheScan_Benchmark : public GoogleBenchmarkC
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
     // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
 
     if (state.thread_index() == 0)
@@ -281,13 +281,13 @@ class GoogleBenchmarkArrowColumnarToRow_CacheScan_Benchmark : public GoogleBench
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(10));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(9));
     ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(8));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
-    //ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(7));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(6));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(5));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(4));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(3));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(2));
+    // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(1));
     // ARROW_ASSIGN_OR_THROW(local_schema, local_schema->RemoveField(0));
 
     if (state.thread_index() == 0)

@@ -32,11 +32,10 @@ using namespace facebook;
 
 namespace gluten {
 
-
-#define ASSIGN_VALUE(datatype) \
-            auto values = reinterpret_cast<const datatype*>(dataptrs[col_index]); \
-            auto p = reinterpret_cast<datatype*>(buffer_address_ + offsets_[j] + field_offset); \
-            *p = values[j]
+#define ASSIGN_VALUE(datatype)                                                        \
+  auto values = reinterpret_cast<const datatype*>(dataptrs[col_index]);               \
+  auto p = reinterpret_cast<datatype*>(buffer_address_ + offsets_[j] + field_offset); \
+  *p = values[j]
 
 uint32_t x_7[8] __attribute__((aligned(32))) = {0x7, 0x7, 0x7, 0x7, 0x7, 0x7, 0x7, 0x7};
 uint32_t x_8[8] __attribute__((aligned(32))) = {0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8, 0x8};
@@ -170,7 +169,7 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
     memset(buffer_address_ + offsets_[row_start], 0, rowlength);
   }
   // fill the row by one column each time
-  for (auto col_index = 0; col_index < num_cols_ ; col_index++) {
+  for (auto col_index = 0; col_index < num_cols_; col_index++) {
     auto& array = vecs_[col_index];
 
     int64_t field_offset = nullBitsetWidthInBytes_ + (col_index << 3L);
@@ -181,7 +180,8 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
           // Boolean type
           auto bool_array = array->asFlatVector<bool>();
           for (auto j = row_start; j < row_start + batch_rows; j++) {
-            auto value = bool_array->valueAt(j);
+            auto bits = reinterpret_cast<const uint8_t*>(dataptrs[col_index]);
+            bool value = (bits[j >> 3] >> (j & 0x07)) & 1;
             auto p = reinterpret_cast<bool*>(buffer_address_ + offsets_[j] + field_offset);
             *p = value;
           }
@@ -293,6 +293,13 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
             }
           }*/
           return arrow::Status::Invalid("Unsupported data type decimal ");
+          break;
+        }
+        case arrow::Time64Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            auto write_address = reinterpret_cast<char*>(buffer_address_ + offsets_[j] + field_offset);
+            velox::row::UnsafeRowSerializer::serialize<velox::TimestampType>(array, write_address, j);
+          }
           break;
         }
         default: {
@@ -444,6 +451,18 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
           return arrow::Status::Invalid("Unsupported data type decimal ");
           break;
         }
+        case arrow::Time64Type::type_id: {
+          for (auto j = row_start; j < row_start + batch_rows; j++) {
+            if (!array->isNullAt(j)) {
+              auto write_address = reinterpret_cast<char*>(buffer_address_ + offsets_[j] + field_offset);
+              auto vec = vecs_[col_index];
+              velox::row::UnsafeRowSerializer::serialize<velox::TimestampType>(vec, write_address, j);
+            } else {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            }
+          }
+          break;
+        }
         default: {
           return arrow::Status::Invalid("Unsupported data type: " + typevec[col_index]);
         }
@@ -479,7 +498,7 @@ arrow::Status VeloxColumnarToRowConverter::Write() {
     typewidth[col_index] = arrow::bit_width(typevec[col_index]) >> 3;
 
     if (arrow::bit_width(typevec[col_index]) > 1 || typevec[col_index] == arrow::StringType::type_id ||
-        typevec[col_index] == arrow::BinaryType::type_id) {
+        typevec[col_index] == arrow::BinaryType::type_id || typevec[col_index] == arrow::BooleanType::type_id) {
       dataptrs[col_index] = buf->as<uint8_t>();
     } else {
       return arrow::Status::Invalid(
