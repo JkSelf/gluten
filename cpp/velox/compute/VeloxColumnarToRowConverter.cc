@@ -21,9 +21,12 @@
 
 #include "ArrowTypeUtils.h"
 #include "arrow/c/helpers.h"
+#include "arrow/util/decimal.h"
 #include "include/arrow/c/bridge.h"
 #include "velox/row/UnsafeRowDynamicSerializer.h"
 #include "velox/row/UnsafeRowSerializer.h"
+#include "velox/type/UnscaledLongDecimal.h"
+#include "velox/type/UnscaledShortDecimal.h"
 #include "velox/vector/arrow/Bridge.h"
 #if defined(__x86_64__)
 #include <immintrin.h>
@@ -254,45 +257,36 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
           break;
         }
         case arrow::Decimal128Type::type_id: {
-          /*auto out_array = dynamic_cast<arrow::Decimal128Array*>(array.get());
-          auto dtype = dynamic_cast<arrow::Decimal128Type*>(out_array->type().get());
-
-          int32_t precision = dtype->precision();
-
-          for (auto j = row_start; j < row_start + batch_rows; j++) {
-            const arrow::Decimal128 out_value(out_array->GetValue(j));
-            bool flag = out_array->IsNull(j);
-
-            if (precision <= 18) {
-              if (!flag) {
-                // Get the long value and write the long value
-                // Refer to the int64_t() method of Decimal128
-                int64_t long_value = static_cast<int64_t>(out_value.low_bits());
-                memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
-              } else {
-                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-              }
+          for (auto j = 0; j < num_rows_; j++) {
+            if (array->typeKind() == velox::TypeKind::SHORT_DECIMAL) {
+              auto shortDecimal = array->asFlatVector<velox::UnscaledShortDecimal>()->rawValues();
+              // Get the long value and write the long value
+              // Refer to the int64_t() method of Decimal128
+              int64_t long_value = shortDecimal[j].unscaledValue();
+              memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
             } else {
-              if (flag) {
-                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-              } else {
-                int32_t size;
-                auto out = ToByteArray(out_value, &size);
-                assert(size <= 16);
+              auto longDecimal = array->asFlatVector<velox::UnscaledLongDecimal>()->rawValues();
 
-                // write the variable value
-                memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
-                // write the offset and size
-                int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
-                memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
-              }
+              int32_t size;
+              velox::int128_t veloxInt128 = longDecimal[j].unscaledValue();
+
+              velox::int128_t orignal_value = veloxInt128;
+              int64_t high = veloxInt128 >> 64;
+              uint64_t lower = (uint64_t)orignal_value;
+
+              auto out = ToByteArray(arrow::Decimal128(high, lower), &size);
+              assert(size <= 16);
+
+              // write the variable value
+              memcpy(buffer_address_ + buffer_cursor_[j] + offsets_[j], &out[0], size);
+              // write the offset and size
+              int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
+              memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
 
               // Update the cursor of the buffer.
-              int64_t new_cursor = buffer_cursor_[j] + 16;
-              buffer_cursor_[j] = new_cursor;
+              buffer_cursor_[j] += 16;
             }
-          }*/
-          return arrow::Status::Invalid("Unsupported data type decimal ");
+          }
           break;
         }
         case arrow::Time64Type::type_id: {
@@ -410,30 +404,26 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
           break;
         }
         case arrow::Decimal128Type::type_id: {
-          /*auto out_array = dynamic_cast<arrow::Decimal128Array*>(array.get());
-          auto dtype = dynamic_cast<arrow::Decimal128Type*>(out_array->type().get());
-
-          int32_t precision = dtype->precision();
-
-          for (auto j = row_start; j < row_start + batch_rows; j++) {
-            const arrow::Decimal128 out_value(out_array->GetValue(j));
-            bool flag = out_array->IsNull(j);
-
-            if (precision <= 18) {
-              if (!flag) {
+          for (auto j = 0; j < num_rows_; j++) {
+            if (array->isNullAt(j)) {
+              SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
+            } else {
+              if (array->typeKind() == velox::TypeKind::SHORT_DECIMAL) {
+                auto shortDecimal = array->asFlatVector<velox::UnscaledShortDecimal>()->rawValues();
                 // Get the long value and write the long value
                 // Refer to the int64_t() method of Decimal128
-                int64_t long_value = static_cast<int64_t>(out_value.low_bits());
+                int64_t long_value = shortDecimal[j].unscaledValue();
                 memcpy(buffer_address_ + offsets_[j] + field_offset, &long_value, sizeof(long));
               } else {
-                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-              }
-            } else {
-              if (flag) {
-                SetNullAt(buffer_address_, offsets_[j], field_offset, col_index);
-              } else {
+                auto longDecimal = array->asFlatVector<velox::UnscaledLongDecimal>()->rawValues();
                 int32_t size;
-                auto out = ToByteArray(out_value, &size);
+                velox::int128_t veloxInt128 = longDecimal[j].unscaledValue();
+
+                velox::int128_t orignal_value = veloxInt128;
+                int64_t high = veloxInt128 >> 64;
+                uint64_t lower = (uint64_t)orignal_value;
+
+                auto out = ToByteArray(arrow::Decimal128(high, lower), &size);
                 assert(size <= 16);
 
                 // write the variable value
@@ -441,14 +431,12 @@ arrow::Status VeloxColumnarToRowConverter::FillBuffer(
                 // write the offset and size
                 int64_t offsetAndSize = ((int64_t)buffer_cursor_[j] << 32) | size;
                 memcpy(buffer_address_ + offsets_[j] + field_offset, &offsetAndSize, sizeof(int64_t));
-              }
 
-              // Update the cursor of the buffer.
-              int64_t new_cursor = buffer_cursor_[j] + 16;
-              buffer_cursor_[j] = new_cursor;
+                // Update the cursor of the buffer.
+                buffer_cursor_[j] += 16;
+              }
             }
-          }*/
-          return arrow::Status::Invalid("Unsupported data type decimal ");
+          }
           break;
         }
         case arrow::Time64Type::type_id: {

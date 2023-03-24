@@ -146,6 +146,83 @@ TEST_F(VeloxColumnarToRowTest, basic) {
   ASSERT_TRUE(rb->Equals(*input_batch));
 }
 
+TEST_F(VeloxColumnarToRowTest, DecimalTest_with_null) {
+  auto f_short_decimal = field("f_short_decimal", arrow::decimal(10, 2));
+  auto f_long_decimal = field("f_long_decimal", arrow::decimal(19, 2));
+
+  auto schema = arrow::schema({f_short_decimal, f_long_decimal});
+
+  const std::vector<std::string> input_data = {R"(["12345.67", null])", R"(["123456789.54", null])"};
+
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  MakeInputBatch(input_data, schema, &input_batch);
+
+  auto row = RecordBatch2VeloxRowVector(*input_batch);
+  auto arrowPool = GetDefaultWrappedArrowMemoryPool();
+  auto veloxPool = AsWrappedVeloxMemoryPool(DefaultMemoryAllocator().get());
+  auto columnarToRowConverter = std::make_shared<VeloxColumnarToRowConverter>(row, arrowPool, veloxPool);
+  GLUTEN_THROW_NOT_OK(columnarToRowConverter->Init());
+  GLUTEN_THROW_NOT_OK(columnarToRowConverter->Write());
+
+  int64_t num_rows = input_batch->num_rows();
+
+  uint8_t* address = columnarToRowConverter->GetBufferAddress();
+  auto length_vec = columnarToRowConverter->GetLengths();
+
+  long arr[length_vec.size()];
+  for (int i = 0; i < length_vec.size(); i++) {
+    arr[i] = length_vec[i];
+  }
+  long* lengthPtr = arr;
+
+  auto row_to_columnar_converter =
+      std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
+
+  auto rb = row_to_columnar_converter->convert();
+  // std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  ASSERT_TRUE(rb->Equals(*input_batch));
+}
+
+TEST_F(VeloxColumnarToRowTest, DecimalTest_without_null) {
+  auto f_short_decimal = field("f_short_decimal", arrow::decimal(10, 2));
+  auto f_long_decimal = field("f_long_decimal", arrow::decimal(19, 2));
+
+  auto schema = arrow::schema({f_short_decimal, f_long_decimal});
+
+  const std::vector<std::string> input_data = {
+      R"(["12345.67", "12345678.67"])", R"(["123456789.54", "123454566789.64"])"};
+
+  std::shared_ptr<arrow::RecordBatch> input_batch;
+  MakeInputBatch(input_data, schema, &input_batch);
+
+  auto row = RecordBatch2VeloxRowVector(*input_batch);
+  auto arrowPool = GetDefaultWrappedArrowMemoryPool();
+  auto veloxPool = AsWrappedVeloxMemoryPool(DefaultMemoryAllocator().get());
+  auto columnarToRowConverter = std::make_shared<VeloxColumnarToRowConverter>(row, arrowPool, veloxPool);
+  GLUTEN_THROW_NOT_OK(columnarToRowConverter->Init());
+  GLUTEN_THROW_NOT_OK(columnarToRowConverter->Write());
+
+  int64_t num_rows = input_batch->num_rows();
+
+  uint8_t* address = columnarToRowConverter->GetBufferAddress();
+  auto length_vec = columnarToRowConverter->GetLengths();
+
+  long arr[length_vec.size()];
+  for (int i = 0; i < length_vec.size(); i++) {
+    arr[i] = length_vec[i];
+  }
+  long* lengthPtr = arr;
+
+  auto row_to_columnar_converter =
+      std::make_shared<RowToColumnarConverter>(schema, num_rows, lengthPtr, address, arrow::default_memory_pool());
+
+  auto rb = row_to_columnar_converter->convert();
+  // std::cout << "input_batch->ToString():\n" << input_batch->ToString() << std::endl;
+  // std::cout << "From rowbuffer to Column, rb->ToString():\n" << rb->ToString() << std::endl;
+  ASSERT_TRUE(rb->Equals(*input_batch));
+}
+
 TEST_F(VeloxColumnarToRowTest, Int_64_twoColumn) {
   const std::vector<std::string> input_data = {
       "[1, 2]",
