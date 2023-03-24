@@ -20,13 +20,41 @@ package io.glutenproject.expression
 import io.glutenproject.GlutenConfig
 import io.glutenproject.backendsapi.BackendsApiManager
 import io.glutenproject.execution.{GlutenColumnarToRowExecBase, WholeStageTransformerExec}
+
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.catalyst.expressions._
+import org.apache.spark.sql.catalyst.expressions.{BinaryArithmetic, _}
 import org.apache.spark.sql.catalyst.optimizer.NormalizeNaNAndZero
 import org.apache.spark.sql.execution._
 import org.apache.spark.sql.execution.exchange.BroadcastExchangeExec
+import org.apache.spark.sql.types.DecimalType
 
 object ExpressionConverter extends Logging {
+
+  private def removeCastForDecimal(arithmeticExpr: Expression): Expression = {
+    arithmeticExpr match {
+      case precision: PromotePrecision =>
+        precision.child match {
+          case cast: Cast if cast.dataType.isInstanceOf[DecimalType]
+            && cast.child.dataType.isInstanceOf[DecimalType] =>
+            cast.child
+          case _ => arithmeticExpr
+        }
+      case _ => arithmeticExpr
+    }
+  }
+
+  private def needRemoveCast(b: BinaryArithmetic): Boolean = {
+    if (b.left.dataType.isInstanceOf[DecimalType]
+      && b.right.dataType.isInstanceOf[DecimalType]) {
+      b match {
+        case _: Divide => true
+        case _: Multiply => true
+        case _: Add => true
+        case _: Subtract => true
+        case _ => false
+      }
+    } else false
+  }
 
   def replaceWithExpressionTransformer(expr: Expression,
       attributeSeq: Seq[Attribute]): ExpressionTransformer = {
@@ -256,13 +284,24 @@ object ExpressionConverter extends Logging {
             attributeSeq),
           u)
       case b: BinaryExpression =>
+        val newLeft = b match {
+          case arithmetic: BinaryArithmetic if needRemoveCast(arithmetic) =>
+            removeCastForDecimal(b.left)
+          case _ => b.left
+        }
+        val newRight = b match {
+          case arithmetic: BinaryArithmetic if needRemoveCast(arithmetic) =>
+            removeCastForDecimal(b.right)
+          case _ => b.right
+        }
+
         BinaryExpressionTransformer(
           substraitExprName,
           replaceWithExpressionTransformer(
-            b.left,
+            newLeft,
             attributeSeq),
           replaceWithExpressionTransformer(
-            b.right,
+            newRight,
             attributeSeq),
           b)
       case t: TernaryExpression =>
