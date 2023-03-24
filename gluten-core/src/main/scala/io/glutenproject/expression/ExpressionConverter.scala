@@ -30,6 +30,12 @@ import org.apache.spark.sql.types.DecimalType
 
 object ExpressionConverter extends Logging {
 
+  /**
+   * remove the test when child is PromotePrecision and PromotePrecision is Cast(Decimal, Decimal)
+   *
+   * @param arithmeticExpr BinaryArithmetic left or right
+   * @return expression removed child PromotePrecision->Cast
+   */
   private def removeCastForDecimal(arithmeticExpr: Expression): Expression = {
     arithmeticExpr match {
       case precision: PromotePrecision =>
@@ -43,6 +49,9 @@ object ExpressionConverter extends Logging {
     }
   }
 
+  // If casting between DecimalType, unnecessary cast is skipped to avoid data loss,
+  // because argument input type of "cast" is actually the res type of "+-*/".
+  // Cast will use a wider input type, then calculated a less scale result type than vanilla spark
   private def needRemoveCast(b: BinaryArithmetic): Boolean = {
     if (b.left.dataType.isInstanceOf[DecimalType]
       && b.right.dataType.isInstanceOf[DecimalType]) {
