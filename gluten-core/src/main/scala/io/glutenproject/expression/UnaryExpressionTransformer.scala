@@ -122,7 +122,7 @@ class CheckOverflowTransformer(
     val toTypeNodes = ExpressionBuilder.makeDecimalLiteral(
       new Decimal().set(0, original.dataType.precision, original.dataType.scale))
     val expressionNodes =
-      Lists.newArrayList(childNode, toTypeNodes, new BooleanLiteralNode(original.nullOnOverflow))
+      Lists.newArrayList(childNode, new BooleanLiteralNode(original.nullOnOverflow), toTypeNodes)
     val typeNode = ConverterUtils.getTypeNode(original.dataType, original.nullable)
     ExpressionBuilder.makeScalarFunction(functionId, expressionNodes, typeNode)
   }
