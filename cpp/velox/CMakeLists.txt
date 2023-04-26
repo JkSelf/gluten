@@ -15,6 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
+add_compile_options(-g)
+
 cmake_minimum_required(VERSION 3.16)
 
 project(velox)

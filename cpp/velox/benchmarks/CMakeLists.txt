@@ -14,6 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+add_compile_options(-g)
 
 find_arrow_lib(${PARQUET_LIB_NAME})
 
@@ -30,4 +31,6 @@ add_velox_benchmark(query_benchmark QueryBenchmark.cc)
 add_velox_benchmark(generic_benchmark GenericBenchmark.cc)
 
 add_velox_benchmark(columnar_to_row_benchmark ColumnarToRowBenchmark.cc)
+add_velox_benchmark(parquet_write_benchmark ParquetWriteBenchmark.cc)
+
 
