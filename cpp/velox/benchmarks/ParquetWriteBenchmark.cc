@@ -171,99 +171,59 @@ class GoogleBenchmarkParquetWrite_IterateScan_Benchmark : public GoogleBenchmark
     for (auto _ : state) {
       ASSERT_NOT_OK(parquet_reader->GetRecordBatchReader(row_group_indices, column_indices, &record_batch_reader));
       auto scanner_builder = arrow::dataset::ScannerBuilder::FromRecordBatchReader(record_batch_reader);
-      // Arrow Dataset API test start
-      auto status = scanner_builder->Pool(arrow::default_memory_pool());
-      auto scanner = scanner_builder->Finish().ValueOrDie();
 
-      std::shared_ptr<arrow::Schema> schema = record_batch_reader->schema();
+      TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
+      std::unique_ptr<::parquet::arrow::FileWriter> arrowWriter;
 
-      auto file_format = std::make_shared<arrow::dataset::ParquetFileFormat>();
+      while (record_batch) {
+        num_batches += 1;
+        num_rows += record_batch->num_rows();
+        // std::cout << "the numrows is " << record_batch->num_rows() << "\n";
+        // Convert arrow RecordBatch to velox row vector and then convert row vector to arrow record batch
+        // auto vector = recordBatch2RowVector(*record_batch);
+        // auto row_vector = std::dynamic_pointer_cast<velox::RowVector>(vector);
 
-      std::shared_ptr<arrow::fs::FileSystem> filesystem;
+        // ArrowArray array;
+        // ArrowSchema schema;
+        // auto start = std::chrono::steady_clock::now();
+        // facebook::velox::exportToArrow(row_vector, array, GetDefaultLeafWrappedVeloxMemoryPool().get());
+        // facebook::velox::exportToArrow(row_vector, schema);
 
-      std::string root_path = "";
-      std::string uri = "file:///tmp/arrow-parquet-write";
+        // PARQUET_ASSIGN_OR_THROW(auto recordBatch, arrow::ImportRecordBatch(&array, &schema));
+        // auto table = arrow::Table::Make(recordBatch->schema(), recordBatch->columns(), row_vector->size());
+        // auto end = std::chrono::steady_clock::now();
+        // data_convert_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 
-      filesystem = arrow::fs::FileSystemFromUri(uri, &root_path).ValueOrDie();
+        // if (!arrowWriter) {
+        //   auto stream = std::make_shared<facebook::velox::parquet::DataBufferSink>(*pool);
+        //   auto arrowProperties = ::parquet::ArrowWriterProperties::Builder().build();
+        //   auto properties = ::parquet::WriterProperties::Builder().build();
+        //   PARQUET_ASSIGN_OR_THROW(
+        //       arrowWriter,
+        //       ::parquet::arrow::FileWriter::Open(
+        //           *recordBatch->schema(), arrow::default_memory_pool(), stream, properties, arrowProperties));
+        // }
 
-      auto base_path = root_path + "/parquet_dataset";
+        if (!arrowWriter) {
+          auto stream = std::make_shared<facebook::velox::parquet::DataBufferSink>(*pool);
+          auto arrowProperties = ::parquet::ArrowWriterProperties::Builder().build();
+          auto properties = ::parquet::WriterProperties::Builder().build();
+          PARQUET_ASSIGN_OR_THROW(
+              arrowWriter,
+              ::parquet::arrow::FileWriter::Open(
+                  *record_batch->schema(), arrow::default_memory_pool(), stream, properties, arrowProperties));
+        }
 
-      arrow::dataset::FileSystemDatasetWriteOptions options;
+        auto table = arrow::Table::Make(record_batch->schema(), record_batch->columns(), record_batch->num_rows());
 
-      options.file_write_options = file_format->DefaultWriteOptions();
-      options.filesystem = filesystem;
-      options.base_dir = base_path;
-      options.basename_template = "part{i}.parquet";
-      options.partitioning =
-          std::make_shared<arrow::dataset::HivePartitioning>(SchemaFromColumnNames(schema, {}).ValueOrDie());
-      options.max_partitions = 1024;
-
-      auto start = std::chrono::steady_clock::now();
-      auto status1 = arrow::dataset::FileSystemDataset::Write(options, scanner);
-      if (status1.ok()) {
-        std::cout << "the write success."
-                  << "\n";
-      } else {
-        std::cout << "the write failed"
-                  << "\n";
+        auto start = std::chrono::steady_clock::now();
+        // PARQUET_THROW_NOT_OK(arrowWriter->WriteTable(*table, 10 * 1024 * 1024));
+        PARQUET_THROW_NOT_OK(arrowWriter->WriteRecordBatch(*record_batch));
+        // parquetWriter->write(std::dynamic_pointer_cast<velox::RowVector>(vector));
+        auto end = std::chrono::steady_clock::now();
+        write_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
       }
-      auto end = std::chrono::steady_clock::now();
-      write_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-
-      // Arrow Dataset API test end
-
-      // TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
-      // std::unique_ptr<::parquet::arrow::FileWriter> arrowWriter;
-
-      // while (record_batch) {
-      //   num_batches += 1;
-      //   num_rows += record_batch->num_rows();
-      //   // std::cout << "the numrows is " << record_batch->num_rows() << "\n";
-      //   // Convert arrow RecordBatch to velox row vector and then convert row vector to arrow record batch
-      //   // auto vector = recordBatch2RowVector(*record_batch);
-      //   // auto row_vector = std::dynamic_pointer_cast<velox::RowVector>(vector);
-
-      //   // ArrowArray array;
-      //   // ArrowSchema schema;
-      //   // auto start = std::chrono::steady_clock::now();
-      //   // facebook::velox::exportToArrow(row_vector, array, GetDefaultLeafWrappedVeloxMemoryPool().get());
-      //   // facebook::velox::exportToArrow(row_vector, schema);
-
-      //   // PARQUET_ASSIGN_OR_THROW(auto recordBatch, arrow::ImportRecordBatch(&array, &schema));
-      //   // auto table = arrow::Table::Make(recordBatch->schema(), recordBatch->columns(), row_vector->size());
-      //   // auto end = std::chrono::steady_clock::now();
-      //   // data_convert_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-
-      //   // if (!arrowWriter) {
-      //   //   auto stream = std::make_shared<facebook::velox::parquet::DataBufferSink>(*pool);
-      //   //   auto arrowProperties = ::parquet::ArrowWriterProperties::Builder().build();
-      //   //   auto properties = ::parquet::WriterProperties::Builder().build();
-      //   //   PARQUET_ASSIGN_OR_THROW(
-      //   //       arrowWriter,
-      //   //       ::parquet::arrow::FileWriter::Open(
-      //   //           *recordBatch->schema(), arrow::default_memory_pool(), stream, properties, arrowProperties));
-      //   // }
-
-      //   if (!arrowWriter) {
-      //     auto stream = std::make_shared<facebook::velox::parquet::DataBufferSink>(*pool);
-      //     auto arrowProperties = ::parquet::ArrowWriterProperties::Builder().build();
-      //     auto properties = ::parquet::WriterProperties::Builder().build();
-      //     PARQUET_ASSIGN_OR_THROW(
-      //         arrowWriter,
-      //         ::parquet::arrow::FileWriter::Open(
-      //             *record_batch->schema(), arrow::default_memory_pool(), stream, properties, arrowProperties));
-      //   }
-
-      //   auto table = arrow::Table::Make(record_batch->schema(), record_batch->columns(), record_batch->num_rows());
-
-      //   auto start = std::chrono::steady_clock::now();
-      //   // PARQUET_THROW_NOT_OK(arrowWriter->WriteTable(*table, 10 * 1024 * 1024));
-      //   PARQUET_THROW_NOT_OK(arrowWriter->WriteRecordBatch(*record_batch));
-      //   // parquetWriter->write(std::dynamic_pointer_cast<velox::RowVector>(vector));
-      //   auto end = std::chrono::steady_clock::now();
-      //   write_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-      //   TIME_NANO_OR_THROW(elapse_read, record_batch_reader->ReadNext(&record_batch));
-      // }
     }
 
     // state.counters["rowgroups"] = benchmark::Counter(
