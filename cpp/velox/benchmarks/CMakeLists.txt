@@ -18,10 +18,12 @@ add_compile_options(-g)
 
 find_arrow_lib(${PARQUET_LIB_NAME})
 
+find_arrow_lib(${ARROW_DATASET_LIB_NAME})
+
 function(add_velox_benchmark BM_EXEC BM_FILE)
   add_executable(${BM_EXEC} ${BM_FILE} BenchmarkUtils.cc)
-  target_include_directories(${BM_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/velox ${CMAKE_SOURCE_DIR}/src)
-  target_link_libraries(${BM_EXEC} gflags_shared Arrow::parquet velox benchmark::benchmark)
+  target_include_directories(${BM_EXEC} PRIVATE ${CMAKE_SOURCE_DIR}/velox ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/../ep/build-arrow/build/arrow_ep)
+  target_link_libraries(${BM_EXEC} gflags_shared Arrow::parquet Arrow::arrow_dataset velox benchmark::benchmark)
 endfunction()
 
 # Query benchmark
