@@ -150,7 +150,7 @@ class GoogleBenchmarkParquetWrite_IterateScan_Benchmark : public GoogleBenchmark
 
     auto parquetWriter = std::make_unique<velox::parquet::Writer>(std::move(sink), *(pool), 2048, properities);
 
-    SetCPU(state.thread_index());
+    SetCPU(state.range(0));
 
     int64_t elapse_read = 0;
     int64_t num_batches = 0;
@@ -206,6 +206,8 @@ class GoogleBenchmarkParquetWrite_IterateScan_Benchmark : public GoogleBenchmark
 
         if (!arrowWriter) {
           auto stream = std::make_shared<facebook::velox::parquet::DataBufferSink>(*pool);
+          // stream->dataBuffer().reserve(20480000);
+          // auto stream = ::arrow::io::BufferOutputStream::Create().ValueOrDie();
           auto arrowProperties = ::parquet::ArrowWriterProperties::Builder().build();
           auto properties = ::parquet::WriterProperties::Builder().build();
           PARQUET_ASSIGN_OR_THROW(
@@ -217,8 +219,8 @@ class GoogleBenchmarkParquetWrite_IterateScan_Benchmark : public GoogleBenchmark
         auto table = arrow::Table::Make(record_batch->schema(), record_batch->columns(), record_batch->num_rows());
 
         auto start = std::chrono::steady_clock::now();
-        // PARQUET_THROW_NOT_OK(arrowWriter->WriteTable(*table, 10 * 1024 * 1024));
-        PARQUET_THROW_NOT_OK(arrowWriter->WriteRecordBatch(*record_batch));
+        PARQUET_THROW_NOT_OK(arrowWriter->WriteTable(*table, 10 * 1024 * 1024));
+        // PARQUET_THROW_NOT_OK(arrowWriter->WriteRecordBatch(*record_batch));
         // parquetWriter->write(std::dynamic_pointer_cast<velox::RowVector>(vector));
         auto end = std::chrono::steady_clock::now();
         write_time += std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
@@ -274,6 +276,9 @@ int main(int argc, char** argv) {
   std::cout << "threads = " << threads << std::endl;
   std::cout << "datafile = " << datafile << std::endl;
   std::cout << "cpu = " << cpu << std::endl;
+
+  datafile =
+      "/mnt/DP_disk2/sparkuser/tpcds/tpcds_parquet_nopartition_date_decimal_1/store_sales/part-00000-2c4d479f-bb3e-46fc-9082-00c317ceee90-c000.snappy.parquet";
 
   gluten::GoogleBenchmarkParquetWrite_IterateScan_Benchmark bck(datafile);
 

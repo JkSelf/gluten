@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-add_compile_options(-g)
 
 cmake_minimum_required(VERSION 3.16)
 message(STATUS "Building using CMake version: ${CMAKE_VERSION}")
@@ -104,6 +103,9 @@ endif()
 #
 # Dependencies
 #
+
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g")
 
 
 include(ConfigArrow)
