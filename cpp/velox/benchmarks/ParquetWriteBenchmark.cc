@@ -148,7 +148,7 @@ class GoogleBenchmarkParquetWrite_IterateScan_Benchmark : public GoogleBenchmark
     // auto properities =
     //     ::parquet::WriterProperties::Builder().write_batch_size(blockSize)->compression(compressionCodec)->build();
 
-    auto parquetWriter = std::make_unique<velox::parquet::Writer>(std::move(sink), *(pool), 2048, properities);
+    // auto parquetWriter = std::make_unique<velox::parquet::Writer>(std::move(sink), *(pool), 2048, properities);
 
     SetCPU(state.range(0));
 
