@@ -27,7 +27,7 @@
 #include "arrow/c/bridge.h"
 #include "arrow/c/helpers.h"
 #include "velox/row/UnsafeRowDeserializers.h"
-#include "velox/row/UnsafeRowSerializers.h"
+#include "velox/row/UnsafeRowFast.h"
 #include "velox/vector/arrow/Bridge.h"
 
 using namespace facebook;
@@ -98,24 +98,24 @@ arrow::Status VeloxColumnarToRowConverter::write() {
 
     int64_t field_offset = getFieldOffset(nullBitsetWidthInBytes_, col_idx);
     auto field_address = (char*)(bufferAddress_ + field_offset);
-
-#define SERIALIZE_COLUMN(DataType)                                                                  \
-  do {                                                                                              \
-    if (mayHaveNulls) {                                                                             \
-      for (int row_idx = 0; row_idx < numRows_; row_idx++) {                                        \
-        if (vec->isNullAt(row_idx)) {                                                               \
-          setNullAt(bufferAddress_, offsets_[row_idx], field_offset, col_idx);                      \
-        } else {                                                                                    \
-          auto write_address = (char*)(field_address + offsets_[row_idx]);                          \
-          velox::row::UnsafeRowSerializer::serialize<velox::DataType>(vec, write_address, row_idx); \
-        }                                                                                           \
-      }                                                                                             \
-    } else {                                                                                        \
-      for (int row_idx = 0; row_idx < numRows_; row_idx++) {                                        \
-        auto write_address = (char*)(field_address + offsets_[row_idx]);                            \
-        velox::row::UnsafeRowSerializer::serialize<velox::DataType>(vec, write_address, row_idx);   \
-      }                                                                                             \
-    }                                                                                               \
+    velox::row::UnsafeRowFast fast(rv_);
+#define SERIALIZE_COLUMN(DataType)                                             \
+  do {                                                                         \
+    if (mayHaveNulls) {                                                        \
+      for (int row_idx = 0; row_idx < numRows_; row_idx++) {                   \
+        if (vec->isNullAt(row_idx)) {                                          \
+          setNullAt(bufferAddress_, offsets_[row_idx], field_offset, col_idx); \
+        } else {                                                               \
+          auto write_address = (char*)(field_address + offsets_[row_idx]);     \
+          fast.serialize(row_idx, write_address);                              \
+        }                                                                      \
+      }                                                                        \
+    } else {                                                                   \
+      for (int row_idx = 0; row_idx < numRows_; row_idx++) {                   \
+        auto write_address = (char*)(field_address + offsets_[row_idx]);       \
+        fast.serialize(row_idx, write_address);                                \
+      }                                                                        \
+    }                                                                          \
   } while (0)
 
     auto colTypeId = schema_->field(col_idx)->type()->id();
@@ -175,41 +175,30 @@ arrow::Status VeloxColumnarToRowConverter::write() {
       case arrow::Decimal128Type::type_id: {
         for (auto rowIdx = 0; rowIdx < numRows_; rowIdx++) {
           bool flag = vec->isNullAt(rowIdx);
-          if (vec->typeKind() == velox::TypeKind::SHORT_DECIMAL) {
-            auto shortDecimal = vec->asFlatVector<velox::UnscaledShortDecimal>()->rawValues();
-            if (!flag) {
-              // Get the long value and write the long value
-              // Refer to the int64_t() method of Decimal128
-              int64_t longValue = shortDecimal[rowIdx].unscaledValue();
-              memcpy(bufferAddress_ + offsets_[rowIdx] + field_offset, &longValue, sizeof(long));
-            } else {
-              setNullAt(bufferAddress_, offsets_[rowIdx], field_offset, col_idx);
-            }
+
+          if (flag) {
+            setNullAt(bufferAddress_, offsets_[rowIdx], field_offset, col_idx);
           } else {
-            if (flag) {
-              setNullAt(bufferAddress_, offsets_[rowIdx], field_offset, col_idx);
-            } else {
-              auto longDecimal = vec->asFlatVector<velox::UnscaledLongDecimal>()->rawValues();
-              int32_t size;
-              velox::int128_t veloxInt128 = longDecimal[rowIdx].unscaledValue();
+            auto longDecimal = vec->asFlatVector<facebook::velox::int128_t>()->rawValues();
+            int32_t size;
+            velox::int128_t veloxInt128 = longDecimal[rowIdx];
 
-              velox::int128_t orignalValue = veloxInt128;
-              int64_t high = veloxInt128 >> 64;
-              uint64_t lower = (uint64_t)orignalValue;
+            velox::int128_t orignalValue = veloxInt128;
+            int64_t high = veloxInt128 >> 64;
+            uint64_t lower = (uint64_t)orignalValue;
 
-              auto out = toByteArray(arrow::Decimal128(high, lower), &size);
-              assert(size <= 16);
+            auto out = toByteArray(arrow::Decimal128(high, lower), &size);
+            assert(size <= 16);
 
-              // write the variable value
-              memcpy(bufferAddress_ + bufferCursor_[rowIdx] + offsets_[rowIdx], &out[0], size);
-              // write the offset and size
-              int64_t offsetAndSize = ((int64_t)bufferCursor_[rowIdx] << 32) | size;
-              memcpy(bufferAddress_ + offsets_[rowIdx] + field_offset, &offsetAndSize, sizeof(int64_t));
-            }
-
-            // Update the cursor of the buffer.
-            bufferCursor_[rowIdx] += 16;
+            // write the variable value
+            memcpy(bufferAddress_ + bufferCursor_[rowIdx] + offsets_[rowIdx], &out[0], size);
+            // write the offset and size
+            int64_t offsetAndSize = ((int64_t)bufferCursor_[rowIdx] << 32) | size;
+            memcpy(bufferAddress_ + offsets_[rowIdx] + field_offset, &offsetAndSize, sizeof(int64_t));
           }
+
+          // Update the cursor of the buffer.
+          bufferCursor_[rowIdx] += 16;
         }
         break;
       }
