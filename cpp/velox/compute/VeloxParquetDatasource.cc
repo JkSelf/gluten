@@ -32,7 +32,6 @@
 #include "config/GlutenConfig.h"
 #include "memory/MemoryAllocator.h"
 #include "memory/VeloxMemoryPool.h"
-#include "velox/core/Context.h"
 #include "velox/core/QueryConfig.h"
 #include "velox/core/QueryCtx.h"
 #include "velox/dwio/common/Options.h"

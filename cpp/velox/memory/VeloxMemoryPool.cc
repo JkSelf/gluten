@@ -25,14 +25,6 @@
 using namespace facebook;
 
 namespace gluten {
-#define VELOX_MEM_POOL_CAP_EXCEEDED(errorMessage)                   \
-  _VELOX_THROW(                                                     \
-      ::facebook::velox::VeloxRuntimeError,                         \
-      ::facebook::velox::error_source::kErrorSourceRuntime.c_str(), \
-      ::facebook::velox::error_code::kMemCapExceeded.c_str(),       \
-      /* isRetriable */ true,                                       \
-      "{}",                                                         \
-      (errorMessage));
 
 // Check if memory operation is allowed and increment the named stats.
 #define CHECK_AND_INC_MEM_OP_STATS(stats)                                                 \
@@ -405,7 +397,7 @@ class WrappedVeloxMemoryPool final : public velox::memory::MemoryPool {
     return freeBytes;
   }
 
-  uint64_t grow(uint64_t bytes) {
+  uint64_t grow(uint64_t bytes) noexcept{
     if (parent_ != nullptr) {
       return parent_->grow(bytes);
     }
@@ -415,6 +407,25 @@ class WrappedVeloxMemoryPool final : public velox::memory::MemoryPool {
     capacity_ += bytes;
     VELOX_CHECK_GE(capacity_, bytes);
     return capacity_;
+  }
+
+  bool aborted() const override {
+    if (parent_ != nullptr) {
+      return parent_->aborted();
+    }
+    return aborted_;
+  }
+
+  void abort() override {
+    if (parent_ != nullptr) {
+      parent_->abort();
+      return;
+    }
+    if (reclaimer_ == nullptr) {
+      VELOX_FAIL("Can't abort the memory pool {} without reclaimer", name_);
+    }
+    aborted_ = true;
+    reclaimer_->abort(this);
   }
 
   std::string toString() const override {
