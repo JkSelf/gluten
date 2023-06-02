@@ -2,8 +2,8 @@
 
 set -exu
 
-VELOX_REPO=https://github.com/zhejiangxiaomai/velox.git
-VELOX_BRANCH=fb_c5b1cfdc2
+VELOX_REPO=https://github.com/zhztheplayer/velox.git
+VELOX_BRANCH=wip-0602
 
 #Set on run gluten on HDFS
 ENABLE_HDFS=OFF
