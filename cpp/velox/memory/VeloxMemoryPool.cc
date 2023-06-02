@@ -155,7 +155,9 @@ class WrappedVeloxMemoryPool : public velox::memory::MemoryPoolImpl {
             .trackUsage = trackUsage_,
             .threadSafe = threadSafe,
             .checkUsageLeak = checkUsageLeak_});
-    child->setAllocatorShared(sharedAlloc_);
+    if (sharedAlloc_) {
+      child->setAllocatorShared(sharedAlloc_);
+    }
     return child;
   }
 
