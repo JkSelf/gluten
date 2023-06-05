@@ -68,7 +68,9 @@ class WrappedVeloxMemoryAllocator final : public velox::memory::MemoryAllocator 
   }
 
   int64_t freeNonContiguous(velox::memory::Allocation& allocation) override {
-    return veloxAlloc_->freeNonContiguous(allocation);
+    int64_t freedBytes = veloxAlloc_->freeNonContiguous(allocation);
+    glutenAlloc_->unreserveBytes(freedBytes);
+    return freedBytes;
   }
 
   bool allocateContiguous(
@@ -86,6 +88,8 @@ class WrappedVeloxMemoryAllocator final : public velox::memory::MemoryAllocator 
 
   void freeContiguous(velox::memory::ContiguousAllocation& allocation) override {
     veloxAlloc_->freeContiguous(allocation);
+    const int64_t bytesToFree = allocation.size();
+    glutenAlloc_->unreserveBytes(bytesToFree);
   }
 
   void* allocateBytes(uint64_t bytes, uint16_t alignment) override {
