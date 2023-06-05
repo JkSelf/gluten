@@ -106,13 +106,13 @@ arrow::Status VeloxColumnarToRowConverter::write() {
         if (vec->isNullAt(row_idx)) {                                          \
           setNullAt(bufferAddress_, offsets_[row_idx], field_offset, col_idx); \
         } else {                                                               \
-          auto write_address = (char*)(field_address + offsets_[row_idx]);     \
+          auto write_address = (char*)(bufferAddress_ + offsets_[row_idx]);    \
           fast.serialize(row_idx, write_address);                              \
         }                                                                      \
       }                                                                        \
     } else {                                                                   \
       for (int row_idx = 0; row_idx < numRows_; row_idx++) {                   \
-        auto write_address = (char*)(field_address + offsets_[row_idx]);       \
+        auto write_address = (char*)(bufferAddress_ + offsets_[row_idx]);      \
         fast.serialize(row_idx, write_address);                                \
       }                                                                        \
     }                                                                          \
