@@ -68,6 +68,7 @@ arrow::Status VeloxColumnarToRowConverter::init() {
 
   ARROW_ASSIGN_OR_RAISE(buffer_, arrow::AllocateBuffer(totalSize, arrowPool_.get()));
   bufferAddress_ = buffer_->mutable_data();
+  memset(bufferAddress_, 0, sizeof(int8_t) * totalSize);
   return arrow::Status::OK();
 }
 
