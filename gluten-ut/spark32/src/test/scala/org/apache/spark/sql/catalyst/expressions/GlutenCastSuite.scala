@@ -40,6 +40,19 @@ class GlutenCastSuite extends CastSuite with GlutenTestsTrait {
   UDTRegistration.register(classOf[IExampleBaseType].getName, classOf[ExampleBaseTypeUDT].getName)
   UDTRegistration.register(classOf[IExampleSubType].getName, classOf[ExampleSubTypeUDT].getName)
 
+  test("gluten from decimal") {
+//    checkCast(Decimal(0.0), false)
+    checkCast(Decimal(0.5), true)
+//    checkCast(Decimal(-5.0), true)
+//    checkCast(Decimal(1.5), 1.toByte)
+//    checkCast(Decimal(1.5), 1.toShort)
+//    checkCast(Decimal(1.5), 1)
+//    checkCast(Decimal(1.5), 1.toLong)
+//    checkCast(Decimal(1.5), 1.5f)
+//    checkCast(Decimal(1.5), 1.5)
+//    checkCast(Decimal(1.5), "1.5")
+  }
+
   test(GLUTEN_TEST + "missing cases - from boolean") {
     (DataTypeTestUtils.numericTypeWithoutDecimal + BooleanType).foreach {
       t =>
