@@ -51,8 +51,6 @@ class SubstraitVeloxPlanConverter {
       const std::unordered_map<std::string, std::string>& confMap,
       bool validationMode = false)
       : pool_(pool), confMap_(confMap), validationMode_(validationMode) {}
-  /// Used to convert Substrait ExpandRel into Velox PlanNode.
-  core::PlanNodePtr toVeloxPlan(const ::substrait::ExpandRel& expandRel);
 
   /// Used to convert Substrait SortRel into Velox PlanNode.
   core::PlanNodePtr toVeloxPlan(const ::substrait::WindowRel& windowRel);

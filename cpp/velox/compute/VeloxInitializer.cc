@@ -46,7 +46,7 @@
 #include "velox/dwio/parquet/RegisterParquetReader.h"
 
 DECLARE_int32(split_preload_per_driver);
-DECLARE_bool(SkipRowSortInWindowOp);
+// DECLARE_bool(SkipRowSortInWindowOp);
 DECLARE_bool(velox_exception_user_stacktrace_enabled);
 
 using namespace facebook;
@@ -98,7 +98,7 @@ void VeloxInitializer::printConf(const std::unordered_map<std::string, std::stri
 void VeloxInitializer::init(const std::unordered_map<std::string, std::string>& conf) {
   // In spark, planner takes care the parititioning and sorting, so the rows are sorted.
   // There is no need to sort the rows in window op again.
-  FLAGS_SkipRowSortInWindowOp = true;
+  // FLAGS_SkipRowSortInWindowOp = true;
   // Set velox_exception_user_stacktrace_enabled.
   {
     auto got = conf.find(kEnableUserExceptionStacktrace);
@@ -188,9 +188,8 @@ void VeloxInitializer::init(const std::unordered_map<std::string, std::string>& 
           ->newConnector(kHiveConnectorId, properties, ioExecutor_.get());
 
   registerConnector(hiveConnector);
-  velox::parquet::registerParquetReaderFactory(velox::parquet::ParquetReaderType::NATIVE);
+  velox::parquet::registerParquetReaderFactory();
   velox::dwrf::registerDwrfReaderFactory();
-  velox::dwrf::registerOrcReaderFactory();
   // Register Velox functions
   registerAllFunctions();
   if (!facebook::velox::isRegisteredVectorSerde()) {
