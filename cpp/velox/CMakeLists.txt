@@ -134,6 +134,7 @@ macro(ADD_VELOX_DEPENDENCIES)
   add_velox_dependency(parquet::reader::thrift "${VELOX_COMPONENTS_PATH}/dwio/parquet/thrift/libvelox_dwio_parquet_thrift.a")
 
   add_velox_dependency(dwio::common "${VELOX_COMPONENTS_PATH}/dwio/common/libvelox_dwio_common.a")
+  add_velox_dependency(common::compression "${VELOX_COMPONENTS_PATH}/common/compression/libvelox_common_compression.a")
   add_velox_dependency(functions::prestosql::types "${VELOX_COMPONENTS_PATH}/functions/prestosql/types/libvelox_presto_types.a")
   add_velox_dependency(expression "${VELOX_COMPONENTS_PATH}/expression/libvelox_expression.a")
   add_velox_dependency(core "${VELOX_COMPONENTS_PATH}/core/libvelox_core.a")
