@@ -312,6 +312,10 @@ if(ENABLE_HDFS)
   add_definitions(-DENABLE_HDFS)
 endif()
 
+if(ENABLE_HDFS3)
+  add_definitions(-DENABLE_HDFS3)
+endif()
+
 if(ENABLE_S3)
   add_definitions(-DENABLE_S3)
   find_awssdk()
