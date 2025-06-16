@@ -151,6 +151,9 @@ set(SPARK_COLUMNAR_PLUGIN_SRCS
     jni/JniCommon.cc
     jni/TaskContextJniWrapper.cc)
 
+list(APPEND SPARK_COLUMNAR_PLUGIN_SRCS
+     shuffle/disaggregated/DisaggregatedJniWrapper.cc)
+
 file(MAKE_DIRECTORY ${root_directory}/releases)
 add_library(gluten SHARED ${SPARK_COLUMNAR_PLUGIN_SRCS})
 add_dependencies(gluten jni_proto)
