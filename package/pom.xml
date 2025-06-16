@@ -361,6 +361,16 @@
         </dependency>
       </dependencies>
     </profile>
+    <profile>
+      <id>disaggregated-shuffle</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.apache.gluten</groupId>
+          <artifactId>gluten-disaggregated-shuffle</artifactId>
+          <version>${project.version}</version>
+        </dependency>
+      </dependencies>
+    </profile>
   </profiles>
 
 </project>
