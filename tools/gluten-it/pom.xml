@@ -41,6 +41,7 @@
     <celeborn.version>0.6.3</celeborn.version>
     <uniffle.version>0.10.0</uniffle.version>
     <gluten.version>1.8.0-SNAPSHOT</gluten.version>
+    <guava.version>32.1.1-jre</guava.version>
     <tpch.version>1.1</tpch.version>
     <tpcds.version>1.4</tpcds.version>
 
