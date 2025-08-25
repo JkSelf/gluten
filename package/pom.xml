@@ -244,6 +244,7 @@
                     <!-- jdo -->
                     <ignoreClass>javax.jdo.*</ignoreClass>
                     <!-- javax -->
+                    <ignoreClass>javax.servlet.*</ignoreClass>
                     <ignoreClass>javax.transaction.*</ignoreClass>
                     <ignoreClass>javax.xml.*</ignoreClass>
                     <!-- log4j -->
