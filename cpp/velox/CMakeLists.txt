@@ -544,6 +544,10 @@ if(ENABLE_ABFS)
   target_link_libraries(velox PUBLIC Azure::azure-identity)
 endif()
 
+if(ENABLE_DAS)
+  add_definitions(-DENABLE_DAS)
+endif()
+
 if(BUILD_EXAMPLES)
   add_subdirectory(udf/examples)
 endif()

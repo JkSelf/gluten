@@ -44,6 +44,9 @@
 #ifdef ENABLE_S3
 #include "filesystem/GlutenS3FileSystem.h"
 #endif
+#if defined(ENABLE_ABFS) && defined(ENABLE_DAS)
+#include "jni/DasAbfsSasTokenProvider.h"
+#endif
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
@@ -201,6 +204,9 @@ void VeloxBackend::init(
 #ifdef ENABLE_ABFS
   velox::filesystems::registerAbfsFileSystem();
   velox::filesystems::registerAzureClientProvider(*hiveConnectorConfig_);
+#ifdef ENABLE_DAS
+  DasAbfsSasTokenProvider::registerProvider(*hiveConnectorConfig_);
+#endif
 #endif
 
 #ifdef GLUTEN_ENABLE_GPU
