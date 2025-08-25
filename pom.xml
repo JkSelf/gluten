@@ -82,7 +82,9 @@
     <uniffle.version>0.10.0</uniffle.version>
     <arrow.version>15.0.0</arrow.version>
     <arrow-memory.artifact>arrow-memory-unsafe</arrow-memory.artifact>
-    <hadoop.version>2.7.4</hadoop.version>
+    <hadoop.version>3.4.0</hadoop.version>
+    <slf4j.version>2.0.7</slf4j.version>
+    <log4j.version>2.20.0</log4j.version>
     <antlr4.version>4.9.3</antlr4.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -98,7 +100,7 @@
     <scala.recompile.mode>all</scala.recompile.mode>
     <scala.release.version>${java.version}</scala.release.version>
     <!-- For unit tests -->
-    <fasterxml.version>2.18.6</fasterxml.version>
+    <fasterxml.version>2.16.2</fasterxml.version>
     <junit.version>4.13.1</junit.version>
     <!-- Maven version for build/mvn wrapper script -->
     <maven.version>3.9.16</maven.version>
@@ -109,8 +111,8 @@
     <gluten.shade.packageName>org.apache.gluten.shaded</gluten.shade.packageName>
 
     <!-- The original protobuf version -->
-    <protobuf.version>3.23.4</protobuf.version>
-    <guava.version>32.0.1-jre</guava.version>
+    <protobuf.version>3.25.5</protobuf.version>
+    <guava.version>32.1.1-jre</guava.version>
     <!--spotless-->
     <spotless.version>2.27.2</spotless.version>
     <googlejavaformat.version>1.7</googlejavaformat.version>
@@ -428,6 +430,12 @@
         </exclusions>
       </dependency>
       <dependency>
+        <groupId>io.delta</groupId>
+        <artifactId>delta-storage</artifactId>
+        <version>${delta.version}</version>
+        <scope>provided</scope>
+      </dependency>
+      <dependency>
         <groupId>org.scalatest</groupId>
         <artifactId>scalatest_${scala.binary.version}</artifactId>
         <version>3.2.16</version>
@@ -473,7 +481,7 @@
       <dependency>
         <groupId>org.scala-lang.modules</groupId>
         <artifactId>scala-collection-compat_${scala.binary.version}</artifactId>
-        <version>2.11.0</version>
+        <version>2.7.0</version>
         <scope>test</scope>
       </dependency>
       <dependency>
@@ -1208,12 +1216,11 @@
         <spark.version>3.4.4</spark.version>
         <iceberg.version>1.10.0</iceberg.version>
         <delta.package.name>delta-core</delta.package.name>
-        <delta.version>2.4.0</delta.version>
+        <delta.version>2.4.1</delta.version>
         <delta.binary.version>24</delta.binary.version>
-        <fasterxml.version>2.15.0</fasterxml.version>
+        <fasterxml.version>2.16.2</fasterxml.version>
         <antlr4.version>4.9.3</antlr4.version>
-        <hadoop.version>3.3.4</hadoop.version>
-        <hudi.version>0.15.0</hudi.version>
+        <hudi.version>0.14.1</hudi.version>
         <slf4j.version>2.0.6</slf4j.version>
         <log4j.version>2.19.0</log4j.version>
       </properties>
@@ -1238,8 +1245,7 @@
         <delta.version>3.3.2</delta.version>
         <delta.binary.version>33</delta.binary.version>
         <hudi.version>0.15.0</hudi.version>
-        <fasterxml.version>2.15.1</fasterxml.version>
-        <hadoop.version>3.3.4</hadoop.version>
+        <fasterxml.version>2.16.2</fasterxml.version>
         <antlr4.version>4.9.3</antlr4.version>
         <slf4j.version>2.0.7</slf4j.version>
         <log4j.version>2.20.0</log4j.version>
@@ -1276,12 +1282,11 @@
         <delta.version>4.0.1</delta.version>
         <delta.binary.version>40</delta.binary.version>
         <hudi.version>1.1.0</hudi.version>
-        <fasterxml.version>2.18.2</fasterxml.version>
-        <fasterxml.jackson.version>2.18.2</fasterxml.jackson.version>
-        <fasterxml.jackson.databind.version>2.18.2</fasterxml.jackson.databind.version>
-        <hadoop.version>3.4.1</hadoop.version>
+        <fasterxml.version>2.16.2</fasterxml.version>
+        <fasterxml.jackson.version>2.16.2</fasterxml.jackson.version>
+        <fasterxml.jackson.databind.version>2.16.2</fasterxml.jackson.databind.version>
         <antlr4.version>4.13.1</antlr4.version>
-        <guava.version>33.4.0-jre</guava.version>
+        <guava.version>33.2.1-jre</guava.version>
         <slf4j.version>2.0.16</slf4j.version>
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
