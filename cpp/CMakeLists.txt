@@ -57,6 +57,7 @@ option(ENABLE_ORC "Enable ORC" OFF)
 option(ENABLE_ABFS "Enable ABFS" OFF)
 option(ENABLE_GPU "Enable GPU" OFF)
 option(ENABLE_ENHANCED_FEATURES "Enable enhanced features" OFF)
+option(ENABLE_DAS "Enable DAS" OFF)
 
 set(root_directory ${PROJECT_BINARY_DIR})
 get_filename_component(GLUTEN_HOME ${CMAKE_SOURCE_DIR} DIRECTORY)

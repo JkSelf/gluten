@@ -53,6 +53,18 @@
 #include "utils/GpuBufferBatchResizer.h"
 #endif
 
+#ifdef ENABLE_DAS
+
+#ifdef ENABLE_ABFS
+#include "jni/DasAbfsSasTokenProvider.h"
+#endif
+
+#ifdef ENABLE_GCS
+#include "jni/DasGcsAccessTokenProvider.h"
+#endif
+
+#endif
+
 using namespace gluten;
 using namespace facebook;
 
@@ -105,6 +117,15 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   initVeloxJniUDF(env);
   initVeloxJniHashTable(env, vm);
 
+#ifdef ENABLE_DAS
+#ifdef ENABLE_ABFS
+  DasAbfsSasTokenProvider::init(vm, env);
+#endif
+#ifdef ENABLE_GCS
+  DasAwareAccessTokenProviderWrapper::init(vm, env);
+#endif
+#endif
+
   infoCls = createGlobalClassReferenceOrError(env, "Lorg/apache/gluten/validate/NativePlanValidationInfo;");
   infoClsInitMethod = getMethodIdOrError(env, infoCls, "<init>", "(ILjava/lang/String;)V");
 
@@ -129,6 +150,16 @@ void JNI_OnUnload(JavaVM* vm, void*) {
   finalizeVeloxJniUDF(env);
   finalizeVeloxJniFileSystem(env);
   finalizeVeloxJniHashTable(env);
+
+#ifdef ENABLE_DAS
+#ifdef ENABLE_ABFS
+  DasAbfsSasTokenProvider::tearDown(env);
+#endif
+#ifdef ENABLE_GCS
+  DasAwareAccessTokenProviderWrapper::tearDown(env);
+#endif
+#endif
+
   getJniErrorState()->close();
   getJniCommonState()->close();
   google::ShutdownGoogleLogging();
