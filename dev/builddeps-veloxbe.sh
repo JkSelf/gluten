@@ -39,6 +39,7 @@ ENABLE_ABFS=OFF
 ENABLE_VCPKG=OFF
 ENABLE_GPU=OFF
 ENABLE_ENHANCED_FEATURES=OFF
+ENABLE_DAS=OFF
 RUN_SETUP_SCRIPT=ON
 VELOX_REPO=""
 VELOX_BRANCH=""
@@ -113,6 +114,10 @@ do
         ;;
         --enable_enhanced_features=*)
         ENABLE_ENHANCED_FEATURES=("${arg#*=}")
+        shift # Remove argument name from processing
+        ;;
+        --enable_das=*)
+        ENABLE_DAS=("${arg#*=}")
         shift # Remove argument name from processing
         ;;
         --run_setup_script=*)
@@ -258,7 +263,8 @@ function build_gluten_cpp {
     -DENABLE_ABFS=$ENABLE_ABFS \
     -DENABLE_GPU=$ENABLE_GPU \
     -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-    -DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES"
+    -DENABLE_ENHANCED_FEATURES=$ENABLE_ENHANCED_FEATURES \
+    -DENABLE_DAS=$ENABLE_DAS"
 
   if [ $OS == 'Darwin' ]; then
     GLUTEN_CMAKE_OPTIONS+=" -DCMAKE_PREFIX_PATH=$INSTALL_PREFIX"
