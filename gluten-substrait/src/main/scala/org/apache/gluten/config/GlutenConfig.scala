@@ -420,6 +420,8 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_S3_PATH_STYLE_ACCESS: String = HADOOP_PREFIX + S3_PATH_STYLE_ACCESS
   val S3_USE_INSTANCE_CREDENTIALS = "fs.s3a.use.instance.credentials"
   val SPARK_S3_USE_INSTANCE_CREDENTIALS: String = HADOOP_PREFIX + S3_USE_INSTANCE_CREDENTIALS
+  val S3_CREDENTIALS_PROVIDER = "fs.s3a.aws.credentials.provider"
+  val SPARK_S3_CREDENTIALS_PROVIDER: String = HADOOP_PREFIX + S3_CREDENTIALS_PROVIDER
   val S3_IAM_ROLE = "fs.s3a.iam.role"
   val SPARK_S3_IAM: String = HADOOP_PREFIX + S3_IAM_ROLE
   val S3_IAM_ROLE_SESSION_NAME = "fs.s3a.iam.role.session.name"
@@ -445,6 +447,9 @@ object GlutenConfig extends ConfigRegistry {
   val SPARK_GCS_AUTH_TYPE: String = HADOOP_PREFIX + GCS_PREFIX + AUTH_TYPE
   val SPARK_GCS_AUTH_SERVICE_ACCOUNT_JSON_KEYFILE: String =
     HADOOP_PREFIX + GCS_PREFIX + AUTH_SERVICE_ACCOUNT_JSON_KEYFILE
+  val AUTH_ACCESS_TOKEN_PROVIDER = "auth.access.token.provider.impl"
+  val SPARK_GCS_AUTH_ACCESS_TOKEN_PROVIDER: String =
+    HADOOP_PREFIX + GCS_PREFIX + AUTH_ACCESS_TOKEN_PROVIDER
 
   // QAT config
   val GLUTEN_QAT_BACKEND_NAME = "qat"
@@ -491,6 +496,7 @@ object GlutenConfig extends ConfigRegistry {
     SPARK_S3_CONNECTION_SSL_ENABLED,
     SPARK_S3_PATH_STYLE_ACCESS,
     SPARK_S3_USE_INSTANCE_CREDENTIALS,
+    SPARK_S3_CREDENTIALS_PROVIDER,
     SPARK_S3_IAM,
     SPARK_S3_IAM_SESSION_NAME,
     SPARK_S3_RETRY_MAX_ATTEMPTS,
@@ -506,6 +512,7 @@ object GlutenConfig extends ConfigRegistry {
     SPARK_GCS_STORAGE_ROOT_URL,
     SPARK_GCS_AUTH_TYPE,
     SPARK_GCS_AUTH_SERVICE_ACCOUNT_JSON_KEYFILE,
+    SPARK_GCS_AUTH_ACCESS_TOKEN_PROVIDER,
     SPARK_REDACTION_REGEX,
     "spark.gluten.sql.columnar.backend.velox.queryTraceEnabled",
     "spark.gluten.sql.columnar.backend.velox.queryTraceDir",
@@ -585,6 +592,8 @@ object GlutenConfig extends ConfigRegistry {
       ReservedKeys.GLUTEN_UGI_USERNAME,
       UserGroupInformation.getCurrentUser.getUserName)
 
+    removeAuthForDas(conf, nativeConfMap)
+
     // return
     nativeConfMap.toMap
   }
@@ -651,16 +660,46 @@ object GlutenConfig extends ConfigRegistry {
     val azurePrefix = HADOOP_PREFIX + ABFS_PREFIX
     val gsPrefix = HADOOP_PREFIX + GCS_PREFIX
     val backendPrefix = s"spark.gluten.$backendName"
+    val wxdPrefix = HADOOP_PREFIX + "wxd."
     conf
       .filter {
         case (k, _) =>
           k.startsWith(confPrefix) || k.startsWith(s3Prefix) || k.startsWith(azurePrefix) || k
-            .startsWith(gsPrefix) || k.startsWith(backendPrefix)
+            .startsWith(gsPrefix) || k.startsWith(backendPrefix) || k.startsWith(wxdPrefix)
       }
       .foreach { case (k, v) => nativeConfMap.put(k, v) }
 
+    removeAuthForDas(conf, nativeConfMap)
+
     // return
     nativeConfMap.asJava
+  }
+
+  private def removeAuthForDas(
+      conf: scala.collection.Map[String, String],
+      nativeConfMap: mutable.Map[String, String]): Unit = {
+    val sasProviderPrefix = HADOOP_PREFIX + ABFS_PREFIX + "sas.token.provider.type."
+    val authPrefix = HADOOP_PREFIX + ABFS_PREFIX + "account.auth.type."
+    val DasSasProvider = "org.apache.hadoop.fs.azurebfs.sas.IbmlhcasSASTokenProvider"
+    val accountSuffix = ".dfs.core.windows.net"
+    val accounts = conf
+      .filter(entry => entry._1.startsWith(sasProviderPrefix) && entry._2.equals(DasSasProvider))
+      .map(
+        entry => {
+          val suffix = entry._1.substring(sasProviderPrefix.length)
+          val firstDot = suffix.indexOf(".")
+          if (firstDot > 0) {
+            suffix.substring(0, firstDot)
+          } else {
+            suffix
+          }
+        })
+    // Remove the account.auth.type config for accounts using DAS SAS provider.
+    accounts.foreach {
+      account =>
+        nativeConfMap.remove(authPrefix + account)
+        nativeConfMap.remove(authPrefix + account + accountSuffix)
+    }
   }
 
   val GLUTEN_ENABLED = GlutenCoreConfig.GLUTEN_ENABLED

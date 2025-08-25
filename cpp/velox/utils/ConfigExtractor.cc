@@ -24,8 +24,26 @@
 #include "utils/Exception.h"
 #include "utils/Macros.h"
 #include "velox/connectors/hive/HiveConfig.h"
+#include "velox/connectors/hive/storage_adapters/abfs/RegisterAbfsFileSystem.h" //@manual
+#include "velox/connectors/hive/storage_adapters/s3fs/RegisterS3FileSystem.h" // @manual
 #include "velox/connectors/hive/storage_adapters/s3fs/S3Config.h"
 #include "velox/dwio/parquet/writer/Writer.h"
+
+#ifdef ENABLE_DAS
+
+#ifdef ENABLE_S3
+#include <aws/core/auth/DASCredentialsProvider.h>
+#endif
+
+#ifdef ENABLE_ABFS
+#include "jni/DasAbfsSasTokenProvider.h"
+#endif
+
+#ifdef ENABLE_GCS
+#include "jni/DasGcsAccessTokenProvider.h"
+#endif
+
+#endif
 
 namespace gluten {
 
@@ -152,6 +170,92 @@ void getS3HiveConfig(
       }
     }
   }
+
+#ifdef ENABLE_DAS
+  const std::string kWxdCasApikey = "WXD_CAS_APIKEY";
+  const std::string kWxdCasEndpoint = "WXD_CAS_ENDPOINT";
+  const std::string kWxdInstanceId = "WXD_INSTANCEID";
+  const std::string kWxdSslNoVerify = "WXD_SSL_NO_VERIFY";
+  const std::unordered_map<std::string, std::string> wxdConfMap = {
+      {"spark.hadoop.wxd.cas.endpoint", kWxdCasEndpoint},
+      {"spark.hadoop.wxd.apikey", kWxdCasApikey},
+      {"spark.hadoop.wxd.apiKey", kWxdCasApikey},
+      {"spark.hadoop.wxd.cas.apiKey", kWxdCasApikey},
+      {"spark.hadoop.wxd.instanceId", kWxdInstanceId},
+      {"spark.hadoop.wxd.cas.ssl.no.verify", kWxdSslNoVerify},
+  };
+
+  // Set DAS configurations through environment variables.
+  for (const auto& [confName, envName] : wxdConfMap) {
+    if (conf->valueExists(confName)) {
+      setenv(envName.c_str(), conf->get<std::string>(confName).value().c_str(), 1);
+    }
+  }
+
+  const std::string kSimpleAWSCredentialsProvider = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
+  const std::string kWastonxCredentialsProvider = "com.ibm.iae.s3.credentialprovider.WatsonxCredentialsProvider";
+
+  static std::once_flag registerDasS3Flag;
+  std::call_once(registerDasS3Flag, [&]() {
+    LOG(INFO) << "Registering DAS AWS credentials provider:" << kWastonxCredentialsProvider;
+    // Register DASCredentialsProvider.
+    registerAWSCredentialsProvider(
+        kWastonxCredentialsProvider, [kWxdCasApikey, kWxdCasEndpoint](const S3Config& config) {
+          // Raise the same error message as in WatsonxBasicSignatureCredentials.java
+          GLUTEN_CHECK(std::getenv(kWxdCasApikey.c_str()) != nullptr, "Please provide valid api key");
+          GLUTEN_CHECK(
+              std::getenv(kWxdCasEndpoint.c_str()) != nullptr,
+              "Please provide spark.hadoop.wxd.cas.endpoint configuration");
+          bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
+              config.secretKey().has_value() && !config.secretKey().value().empty();
+          const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
+          const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
+          return std::make_shared<Aws::Auth::DASCredentialsProvider>(accessKey, secretKey, config.bucket());
+        });
+
+    // Register SimpleAWSCredentialsProvider for bucket fallback path.
+    registerAWSCredentialsProvider("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", [](const S3Config& config) {
+      GLUTEN_CHECK(
+          config.accessKey().has_value() && !config.accessKey().value().empty(),
+          "Access key cannot be empty for SimpleAWSCredentialsProvider");
+      GLUTEN_CHECK(
+          config.secretKey().has_value() && !config.secretKey().value().empty(),
+          "Secret key cannot be empty for SimpleAWSCredentialsProvider");
+      return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(
+          config.accessKey().value(), config.secretKey().value());
+    });
+  });
+
+  // Extract credentials provider configuration only if it's set to WatsonxCredentialsProvider.
+  const auto kAwsCredentialsProviderSuffix = "aws.credentials.provider";
+  const auto credentialsProviderKey = std::string(kSparkHadoopS3Prefix) + kAwsCredentialsProviderSuffix;
+  if (conf->valueExists(credentialsProviderKey)) {
+    auto credentialsProvider = conf->get<std::string>(credentialsProviderKey);
+    if (credentialsProvider.has_value() && credentialsProvider.value() == kWastonxCredentialsProvider) {
+      hiveConfMap[S3Config::baseConfigKey(S3Config::Keys::kCredentialsProvider)] = kWastonxCredentialsProvider;
+    }
+  }
+  // Extract bucket credentials provider configuration only if it's set to WatsonxCredentialsProvider or
+  // SimpleAWSCredentialsProvider(fallback).
+  for (const auto& [key, value] : conf->rawConfigsCopy()) {
+    if (key.find(kSparkHadoopS3BucketPrefix) == 0) {
+      std::string_view skey = key;
+      auto remaining = skey.substr(kSparkHadoopS3BucketPrefix.size());
+      int dot = remaining.find(".");
+      auto bucketName = remaining.substr(0, dot);
+      auto suffix = remaining.substr(dot + 1);
+      if (suffix == kAwsCredentialsProviderSuffix) {
+        if (value == kWastonxCredentialsProvider) {
+          hiveConfMap[S3Config::bucketConfigKey(S3Config::Keys::kCredentialsProvider, bucketName)] =
+              kWastonxCredentialsProvider;
+        } else if (value == kSimpleAWSCredentialsProvider) {
+          hiveConfMap[S3Config::bucketConfigKey(S3Config::Keys::kCredentialsProvider, bucketName)] =
+              kSimpleAWSCredentialsProvider;
+        }
+      }
+    }
+  }
+#endif
 #endif
 }
 
@@ -200,6 +304,23 @@ void getGcsHiveConfig(
                     "but conf spark.hadoop.fs.gs.auth.type is not SERVICE_ACCOUNT_JSON_KEYFILE";
     throw GlutenException("Conf spark.hadoop.fs.gs.auth.type is missing or incorrect");
   }
+
+#ifdef ENABLE_DAS
+  std::string_view kGcsAccessTokenProviderKey = "spark.hadoop.fs.gs.auth.access.token.provider.impl";
+  for (const auto& [key, value] : conf->rawConfigsCopy()) {
+    if (key.find(kGcsAccessTokenProviderKey) == 0 &&
+        value == DasGcsAccessTokenCredentialsProvider::kDasGcsAccessTokenProviderName) {
+      static std::once_flag registerDasGcsFlag;
+      std::call_once(registerDasGcsFlag, [&]() {
+        LOG(INFO) << "Registering DAS GCS access token provider: "
+                  << DasGcsAccessTokenCredentialsProvider::kDasGcsAccessTokenProviderName;
+        DasGcsAccessTokenCredentialsProvider::registerFactory();
+      });
+      hiveConfMap[facebook::velox::connector::hive::HiveConfig::kGcsAuthAccessTokenProvider] =
+          DasGcsAccessTokenCredentialsProvider::kDasGcsAccessTokenProviderName;
+    }
+  }
+#endif
 #endif
 }
 
