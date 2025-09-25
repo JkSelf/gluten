@@ -23,6 +23,7 @@ import org.apache.gluten.utils.PartitionsUtil.regeneratePartition
 import org.apache.spark.Partition
 import org.apache.spark.internal.Logging
 import org.apache.spark.sql.catalyst.expressions.Attribute
+import org.apache.spark.sql.execution.GlutenFilePartitionCoalescer
 import org.apache.spark.sql.execution.datasources.{BucketingUtils, FilePartition, HadoopFsRelation, PartitionDirectory, PartitionedFile}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.util.collection.BitSet
@@ -52,8 +53,11 @@ case class PartitionsUtil(
 
   private def genNonBuckedPartitionSeq(): Seq[Partition] = {
     val openCostInBytes = relation.sparkSession.sessionState.conf.filesOpenCostInBytes
-    val maxSplitBytes =
-      FilePartition.maxSplitBytes(relation.sparkSession, selectedPartitions)
+    val coalescePartitionsByColumnsEnabled = GlutenConfig.get.coalescePartitionsByColumnsEnabled
+
+    val maxSplitBytes = adjustMaxSplitBytes(
+      FilePartition.maxSplitBytes(relation.sparkSession, selectedPartitions),
+      coalescePartitionsByColumnsEnabled)
     logInfo(
       s"Planning scan with bin packing, max size: $maxSplitBytes bytes, " +
         s"open cost is considered as scanning $openCostInBytes bytes.")
@@ -103,7 +107,21 @@ case class PartitionsUtil(
     val inputPartitions =
       FilePartition.getFilePartitions(relation.sparkSession, splitFiles, maxSplitBytes)
 
-    regeneratePartition(inputPartitions, GlutenConfig.get.smallFileThreshold)
+    if (!coalescePartitionsByColumnsEnabled) {
+      logInfo(s"try to use Gluten optimization: ${inputPartitions.length}")
+      return regeneratePartition(inputPartitions, GlutenConfig.get.smallFileThreshold)
+    }
+
+    val targetPartitions =
+      math.min(inputPartitions.length, relation.sparkSession.sessionState.conf.numShufflePartitions)
+
+    val partitions = GlutenFilePartitionCoalescer.coalesce(
+      relation.sparkSession,
+      inputPartitions,
+      splitFiles.toSeq,
+      targetPartitions)
+
+    partitions
   }
 
   private def genBucketedPartitionSeq(): Seq[Partition] = {
@@ -145,6 +163,38 @@ case class PartitionsUtil(
 
   private def toAttribute(colName: String): Option[Attribute] = {
     output.find(_.name == colName)
+  }
+
+  /**
+   * This method adjust the max split bytes based on the columns selected
+   * @param initialSplitBytes
+   * @param enabled
+   * @return
+   *   adjustedSplitBytes
+   */
+  private def adjustMaxSplitBytes(initialSplitBytes: Long, enabled: Boolean): Long = {
+    if (!enabled) {
+      logInfo(s"Skipping adjusting maxSplitBytes, keep it as $initialSplitBytes")
+      return initialSplitBytes
+    }
+    val totalRelationSize: Double =
+      relation.dataSchema.map(f => f.dataType.defaultSize).sum.toDouble
+    val selectedColumnsSize: Double =
+      requiredSchema.map(f => f.dataType.defaultSize).sum.toDouble
+
+    val ratio =
+      if (selectedColumnsSize == 0.0 || totalRelationSize == 0.0) 1.0
+      else totalRelationSize / selectedColumnsSize
+
+    val cappedRatio = math.min(ratio, 10.0)
+    val adjustedSplitBytes = (initialSplitBytes * cappedRatio).toLong
+
+    logInfo(
+      s"Adjusting maxSplitBytes from $initialSplitBytes to $adjustedSplitBytes " +
+        s"based on selected schema size: $selectedColumnsSize vs total schema size: " +
+        s"$totalRelationSize (scaling factor: $cappedRatio)"
+    )
+    adjustedSplitBytes
   }
 }
 

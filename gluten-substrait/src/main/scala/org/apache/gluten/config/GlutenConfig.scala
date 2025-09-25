@@ -216,6 +216,7 @@ class GlutenConfig(conf: SQLConf) extends GlutenCoreConfig(conf) {
     getConf(COLUMNAR_PHYSICAL_JOIN_OPTIMIZATION_ENABLED)
 
   def enableScanOnly: Boolean = getConf(COLUMNAR_SCAN_ONLY_ENABLED)
+  def coalescePartitionsByColumnsEnabled: Boolean = getConf(COALESCE_PARTITIONS_BY_COLUMNS)
 
   def columnarShuffleSortPartitionsThreshold: Int =
     getConf(COLUMNAR_SHUFFLE_SORT_PARTITIONS_THRESHOLD)
@@ -1079,6 +1080,14 @@ object GlutenConfig extends ConfigRegistry {
   val COLUMNAR_PHYSICAL_JOIN_OPTIMIZATION_ENABLED =
     buildConf("spark.gluten.sql.columnar.physicalJoinOptimizeEnable")
       .doc("Enable or disable columnar physicalJoinOptimize.")
+      .booleanConf
+      .createWithDefault(false)
+
+  val COALESCE_PARTITIONS_BY_COLUMNS =
+    buildConf("spark.sql.ibm.coalescePartitionsByColumns.enabled")
+      .doc(s"When true,Spark will coalesce contiguous shuffle partitions " +
+        s"according to the selected columns, to avoid too many small tasks.")
+      .version("3.0.0")
       .booleanConf
       .createWithDefault(false)
 
