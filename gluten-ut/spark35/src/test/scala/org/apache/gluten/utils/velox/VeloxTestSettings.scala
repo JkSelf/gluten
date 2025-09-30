@@ -106,6 +106,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39749: cast Decimal to string")
     // See https://github.com/facebookincubator/velox/issues/17593.
     .exclude("Fast fail for cast string type to decimal type")
+    // Failed at unrecognized timezone. Perhaps due to the version of tzdata.
+    .excludeGlutenTest("cast string to timestamp")
+    .excludeGlutenTest("data type casting")
   enableSuite[GlutenTryCastSuite]
     .exclude(
       "Process Infinity, -Infinity, NaN in case insensitive manner" // +inf not supported in folly.
@@ -125,6 +128,9 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-39749: cast Decimal to string")
     // See https://github.com/facebookincubator/velox/issues/17593.
     .exclude("Fast fail for cast string type to decimal type in ansi mode")
+    // Failed at unrecognized timezone. Perhaps due to the version of tzdata.
+    .excludeGlutenTest("cast string to timestamp")
+    .excludeGlutenTest("data type casting")
   enableSuite[GlutenCollectionExpressionsSuite]
     // Rewrite in Gluten to replace Seq with Array
     .exclude("Shuffle")
@@ -162,6 +168,8 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenHashExpressionsSuite]
   enableSuite[GlutenHigherOrderFunctionsSuite]
   enableSuite[GlutenIntervalExpressionsSuite]
+    // Error message mismatch.
+    .exclude("SPARK-34824: multiply year-month interval by numeric")
   enableSuite[GlutenJsonExpressionsSuite]
     // https://github.com/apache/gluten/issues/8102
     .exclude("$.store.book")
@@ -183,6 +191,8 @@ class VeloxTestSettings extends BackendTestSettings {
     .exclude("SPARK-42782: Hive compatibility check for get_json_object")
     // Velox does not support single quotes in get_json_object function.
     .exclude("function get_json_object - support single quotes")
+    // wxd spark error message mismatch.
+    .exclude("SPARK-33286: from_json - combined error messages")
   enableSuite[GlutenLiteralExpressionSuite]
     .exclude("default")
     // FIXME(yma11): ObjectType is not covered in RowEncoder/Serializer in vanilla spark
