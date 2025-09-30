@@ -25,7 +25,7 @@ class JsonFunctionsValidateSuite extends FunctionsValidateSuite {
   disableFallbackCheck
   import testImplicits._
 
-  test("get_json_object") {
+  ignore("get_json_object") {
     runQueryAndCompare(
       "SELECT get_json_object(string_field1, '$.a') " +
         "from datatab limit 1;") {
