@@ -238,6 +238,7 @@
               <rules>
                 <banDuplicateClasses>
                   <ignoreClasses>
+                    <ignoreClass>org/fusesource/leveldbjni/**</ignoreClass>
                     <!-- The UnusedStubClass from Spark -->
                     <ignoreClass>org.apache.spark.unused.UnusedStubClass</ignoreClass>
                     <!-- jdo -->
