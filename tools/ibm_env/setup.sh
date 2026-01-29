@@ -76,8 +76,8 @@ elif [ "$1" == "4.0" ]; then
     mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/external-jars/libthrift-0.18.0.jar -DgroupId=org.apache.thrift -DartifactId=libthrift -Dversion=0.12.0 -Dpackaging=jar
     mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/jars/libfb303-0.9.3.jar -DgroupId=org.apache.thrift -DartifactId=libfb303 -Dversion=0.9.3 -Dpackaging=jar
     mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/external-jars/spark-disaggregated-shuffle_2.13-4.0.0_1.0.2.jar -DgroupId=com.ibm -DartifactId=spark-disaggregated-shuffle_2.13 -Dversion=4.0.0_1.0.2 -Dpackaging=jar
-    mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/wxd/delta-spark_2.13-4.0.0.jar -DgroupId=io.delta -DartifactId=delta-spark_2.13 -Dversion=4.0.0 -Dpackaging=jar
-    mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/wxd/delta-storage-4.0.0.jar -DgroupId=io.delta -DartifactId=delta-storage -Dversion=4.0.0 -Dpackaging=jar
+    mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=`ls /ibm_spark/wxd/delta-spark_2.13-4.0.0-ibm-*.jar` -DgroupId=io.delta -DartifactId=delta-spark_2.13 -Dversion=4.0.0 -Dpackaging=jar
+    mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=`ls /ibm_spark/wxd/delta-storage-4.0.0-ibm-*.jar` -DgroupId=io.delta -DartifactId=delta-storage -Dversion=4.0.0 -Dpackaging=jar
     mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=`ls /ibm_spark/wxd/hudi-spark4.0-bundle_2.13-1.1.0-ibm-*.jar` -DgroupId=org.apache.hudi -DartifactId=hudi-spark4.0-bundle_2.13 -Dversion=1.1.0 -Dpackaging=jar
     # mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file -Dfile=/ibm_spark/external-jars/iceberg-spark-runtime-4.0_2.13-1.10.0-ibm-1-20251121.jar -DgroupId=org.apache.iceberg -DartifactId=iceberg-spark-runtime-4.0_2.13 -Dversion=1.10.0 -Dpackaging=jar
 else
