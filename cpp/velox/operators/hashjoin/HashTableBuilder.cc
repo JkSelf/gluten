@@ -103,7 +103,7 @@ HashTableBuilder::HashTableBuilder(
 
 // Invoked to set up hash table to build.
 void HashTableBuilder::setupTable() {
-  VELOX_CHECK_NULL(table_);
+  VELOX_CHECK_NULL(uniqueTable_);
 
   const auto numKeys = keyChannels_.size();
   std::vector<std::unique_ptr<facebook::velox::exec::VectorHasher>> keyHashers;
@@ -120,7 +120,7 @@ void HashTableBuilder::setupTable() {
   }
   if (isRightJoin(joinType_) || isFullJoin(joinType_) || isRightSemiProjectJoin(joinType_)) {
     // Do not ignore null keys.
-    table_ = facebook::velox::exec::HashTable<false>::createForJoin(
+    uniqueTable_ = facebook::velox::exec::HashTable<false>::createForJoin(
         std::move(keyHashers),
         dependentTypes,
         true, // allowDuplicates
@@ -138,7 +138,7 @@ void HashTableBuilder::setupTable() {
     if (isLeftNullAwareJoinWithFilter(joinType_, nullAware_, withFilter_)) {
       // We need to check null key rows in build side in case of null-aware anti
       // or left semi project join with filter set.
-      table_ = facebook::velox::exec::HashTable<false>::createForJoin(
+      uniqueTable_ = facebook::velox::exec::HashTable<false>::createForJoin(
           std::move(keyHashers),
           dependentTypes,
           !dropDuplicates, // allowDuplicates
@@ -148,7 +148,7 @@ void HashTableBuilder::setupTable() {
           true);
     } else {
       // Ignore null keys
-      table_ = facebook::velox::exec::HashTable<true>::createForJoin(
+      uniqueTable_ = facebook::velox::exec::HashTable<true>::createForJoin(
           std::move(keyHashers),
           dependentTypes,
           !dropDuplicates, // allowDuplicates
@@ -158,14 +158,14 @@ void HashTableBuilder::setupTable() {
           true);
     }
   }
-  analyzeKeys_ = table_->hashMode() != facebook::velox::exec::BaseHashTable::HashMode::kHash;
+  analyzeKeys_ = uniqueTable_->hashMode() != facebook::velox::exec::BaseHashTable::HashMode::kHash;
 }
 
 void HashTableBuilder::addInput(facebook::velox::RowVectorPtr input) {
   activeRows_.resize(input->size());
   activeRows_.setAll();
 
-  auto& hashers = table_->hashers();
+  auto& hashers = uniqueTable_->hashers();
 
   for (auto i = 0; i < hashers.size(); ++i) {
     auto key = input->childAt(hashers[i]->channel())->loadedVector();
@@ -219,7 +219,7 @@ void HashTableBuilder::addInput(facebook::velox::RowVectorPtr input) {
       analyzeKeys_ = hasher->mayUseValueIds();
     }
   }
-  auto rows = table_->rows();
+  auto rows = uniqueTable_->rows();
   auto nextOffset = rows->nextOffset();
 
   activeRows_.applyToSelected([&](auto rowIndex) {

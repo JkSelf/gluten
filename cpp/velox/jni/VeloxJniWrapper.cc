@@ -973,17 +973,61 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
   }
 
-  auto hashTableHandler = nativeHashTableBuild(
-      hashJoinKey,
-      names,
-      veloxTypeList,
-      joinType,
-      hasMixedJoinCondition,
-      isExistenceJoin,
-      isNullAwareAntiJoin,
-      cb,
-      defaultLeafVeloxMemoryPool());
-  return gluten::hashTableObjStore->save(hashTableHandler);
+   auto numThreads = std::min((size_t)std::thread::hardware_concurrency(), (size_t)handleCount);
+      std::vector<std::thread> threads;
+
+
+      std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(handleCount);
+       std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(handleCount);
+
+
+      size_t chunkSize = (handleCount + numThreads - 1) / numThreads;
+
+      for (size_t t = 0; t < numThreads; ++t) {
+          size_t start = t * chunkSize;
+          size_t end = std::min(start + chunkSize, (size_t)handleCount);
+
+          if (start >= end) break;
+
+          threads.emplace_back([&, start, end]() {
+              for (size_t i = start; i < end; ++i) {
+
+                  std::vector<std::shared_ptr<gluten::ColumnarBatch>> batchVector = {cb[i]};
+
+                  auto builder = nativeHashTableBuild(
+                      hashJoinKey, names, veloxTypeList, joinType,
+                      hasMixedJoinCondition, isExistenceJoin, isNullAwareAntiJoin,
+                      batchVector, defaultLeafVeloxMemoryPool());
+
+                  hashTableBuilders[i] = std::move(builder);
+                  otherTables[i] = std::move(hashTableBuilders[i]->uniqueHashTable());
+              }
+          });
+      }
+
+
+      for (auto& thread : threads) {
+          thread.join();
+      }
+
+      auto mainTable = std::move(otherTables[0]);
+      std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
+      for (int i = 1; i < handleCount; ++i) {
+        tables.push_back(std::move(otherTables[i]));
+      }
+
+      mainTable->prepareJoinTable(
+          std::move(tables), facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit, 1'000'000);
+
+      for (int i = 1; i < handleCount; ++i) {
+          if (hashTableBuilders[i]->joinHasNullKeys()) {
+              hashTableBuilders[0]->setJoinHasNullKeys(true);
+              break;
+          }
+      }
+
+    hashTableBuilders[0]->setHashTable(std::move(mainTable));
+    return gluten::hashTableObjStore->save(hashTableBuilders[0]);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 

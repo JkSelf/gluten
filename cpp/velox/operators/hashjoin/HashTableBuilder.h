@@ -43,8 +43,19 @@ class HashTableBuilder {
     return table_;
   }
 
+   void setHashTable(std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueHashTable) {
+      table_ = std::move(uniqueHashTable);
+    }
+  std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueHashTable() {
+      return std::move(uniqueTable_);
+    }
+
   bool joinHasNullKeys() {
     return joinHasNullKeys_;
+  }
+
+  void setJoinHasNullKeys( bool joinHasNullKeys) {
+    joinHasNullKeys_ = joinHasNullKeys;
   }
 
  private:
@@ -61,6 +72,9 @@ class HashTableBuilder {
 
   // Container for the rows being accumulated.
   std::shared_ptr<facebook::velox::exec::BaseHashTable> table_;
+
+  // Container for the rows being accumulated.
+  std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueTable_;
 
   // Key channels in 'input_'
   std::vector<column_index_t> keyChannels_;
