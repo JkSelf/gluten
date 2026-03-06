@@ -21,6 +21,8 @@
 #include <jni/JniCommon.h>
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
+#include <folly/futures/Future.h>
+#include <folly/executors/CPUThreadPoolExecutor.h>
 
 #include <exception>
 #include "JniUdf.h"
@@ -1011,16 +1013,20 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     return gluten::hashTableObjStore->save(builder);
   }
 
-  std::vector<std::thread> threads;
-
+  // Use thread pool (executor) instead of creating threads directly
+  auto executor = VeloxBackend::get()->executor();
+  
   std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
+  std::vector<folly::Future<folly::Unit>> futures;
+  futures.reserve(numThreads);
 
   for (size_t t = 0; t < numThreads; ++t) {
     size_t start = (handleCount * t) / numThreads;
     size_t end = (handleCount * (t + 1)) / numThreads;
 
-    threads.emplace_back([&, t, start, end]() {
+    // Submit task to thread pool
+    auto future = folly::via(executor, [&, t, start, end]() {
       std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
       for (size_t i = start; i < end; ++i) {
         threadBatches.push_back(cb[i]);
@@ -1041,11 +1047,12 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       hashTableBuilders[t] = std::move(builder);
       otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
     });
+    
+    futures.push_back(std::move(future));
   }
 
-  for (auto& thread : threads) {
-    thread.join();
-  }
+  // Wait for all tasks to complete
+  folly::collectAll(futures).wait();
 
   auto mainTable = std::move(otherTables[0]);
   std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
