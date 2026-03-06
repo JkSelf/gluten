@@ -66,6 +66,13 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(CollapseGetJsonObjectExpressionRule.apply)
     injector.injectOptimizerRule(RewriteCastFromArray.apply)
     injector.injectOptimizerRule(RewriteUnboundedWindow.apply)
+
+    // Inject GlutenJoinKeysCapture strategy to capture join keys at logical plan stage
+    // Only inject if the backend does not support join key rewriting
+    if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
+      injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())
+    }
+
     if (BackendsApiManager.getSettings.supportAppendDataExec()) {
       injector.injectPlannerStrategy(SparkShimLoader.getSparkShims.getRewriteCreateTableAsSelect(_))
     }
