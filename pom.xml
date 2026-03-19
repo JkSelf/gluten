@@ -1291,7 +1291,7 @@
         <log4j.version>2.24.3</log4j.version>
         <commons-lang3.version>3.17.0</commons-lang3.version>
         <arrow.version>18.1.0</arrow.version>
-        <scala.compiler.version>4.9.2</scala.compiler.version>
+        <scala.compiler.version>4.9.9</scala.compiler.version>
       </properties>
       <dependencies>
         <dependency>
