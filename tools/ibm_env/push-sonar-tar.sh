@@ -82,12 +82,12 @@ echo "Creating archive $ARCHIVE_FILE (name: ${ARCHIVE_BASE}.tar.gz)"
 tar -czf "$ARCHIVE_FILE" -C "$(dirname "$STAGING_DIR")" "$ARCHIVE_BASE"
 
 echo "Uploading archive to $UPLOAD_URL"
-curl -f -u "${ART_USER}:${ART_TOKEN}" -T "$ARCHIVE_FILE" "$UPLOAD_URL"
+curl -f -u "${ART_USER}:${ART_TOKEN}" -T "$ARCHIVE_FILE" "$UPLOAD_URL" || echo "Warning: upload failed"
 
 if [ "$GLUTEN_BRANCH" = "main" ]; then
   BINARIES_URL="https://na.artifactory.swg-devops.com/artifactory/hyc-cpd-skywalker-team-lakehouse-on-prem-generic-local/sonarqube/binaries/${ARCHIVE_BASE}.tar.gz"
   echo "Branch is 'main' — also uploading to $BINARIES_URL"
-  curl -f -u "${ART_USER}:${ART_TOKEN}" -T "$ARCHIVE_FILE" "$BINARIES_URL"
+  curl -f -u "${ART_USER}:${ART_TOKEN}" -T "$ARCHIVE_FILE" "$BINARIES_URL" || echo "Warning: main upload failed"
 fi
 
 echo "Cleaning up staging and archive"
