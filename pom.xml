@@ -107,6 +107,10 @@
     <junit5.version>5.11.4</junit5.version>
     <flexmark.version>0.62.2</flexmark.version>
 
+    <!-- For das -->
+    <gcs.sdk.version>hadoop3-2.2.26</gcs.sdk.version>
+    <aws.java.sdk.version>2.28.26</aws.java.sdk.version>
+
     <!-- Package name to use when relocating shaded classes -->
     <gluten.shade.packageName>org.apache.gluten.shaded</gluten.shade.packageName>
 

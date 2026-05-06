@@ -223,7 +223,13 @@
     <dependency>
       <groupId>com.google.cloud.bigdataoss</groupId>
       <artifactId>util-hadoop</artifactId>
-      <version>hadoop3-2.2.26</version>
+      <version>${gcs.sdk.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>bundle</artifactId>
+      <version>${aws.java.sdk.version}</version>
       <scope>provided</scope>
     </dependency>
   </dependencies>
