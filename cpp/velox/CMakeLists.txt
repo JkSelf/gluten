@@ -271,6 +271,10 @@ if(CMAKE_SYSTEM_NAME MATCHES "Darwin")
                       "LINKER:-force_load,${VELOX_BUILD_PATH}/lib/libvelox.a")
 endif()
 
+if(ENABLE_GLUTEN_VCPKG)
+  add_definitions(-DGLUTEN_VCPKG)
+endif()
+
 find_protobuf()
 message(STATUS "Found Protobuf: ${PROTOBUF_LIBRARY}")
 
