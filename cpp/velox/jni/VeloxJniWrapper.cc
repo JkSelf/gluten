@@ -24,8 +24,10 @@
 #include <velox/connectors/hive/PartitionIdGenerator.h>
 #include <velox/exec/OperatorUtils.h>
 
+#include <algorithm>
 #include <exception>
 #include <type_traits>
+#include <istream>
 #include "JniUdf.h"
 #include "compute/Runtime.h"
 #include "compute/VeloxBackend.h"
@@ -57,6 +59,10 @@
 #endif
 
 #ifdef ENABLE_DAS
+
+#ifdef ENABLE_S3
+#include "jni/DasS3CredentialsProvider.h"
+#endif
 
 #ifdef ENABLE_ABFS
 #include "jni/DasAbfsSasTokenProvider.h"
@@ -121,6 +127,9 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   initVeloxJniHashTable(env, vm);
 
 #ifdef ENABLE_DAS
+#ifdef ENABLE_S3
+  DasS3CredentialsProvider::init(vm, env);
+#endif
 #ifdef ENABLE_ABFS
   DasAbfsSasTokenProvider::init(vm, env);
 #endif
@@ -156,6 +165,9 @@ void JNI_OnUnload(JavaVM* vm, void*) {
   finalizeVeloxJniHashTable(env);
 
 #ifdef ENABLE_DAS
+#ifdef ENABLE_S3
+  DasS3CredentialsProvider::tearDown(env);
+#endif
 #ifdef ENABLE_ABFS
   DasAbfsSasTokenProvider::tearDown(env);
 #endif
@@ -1193,6 +1205,60 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_clearHa
   ObjectStore::release(tableHandler);
   JNI_METHOD_END()
 }
+
+JNIEXPORT jint JNICALL Java_org_apache_spark_das_DasS3SignerWrapper_read( // NOLINT
+    JNIEnv* env,
+    jobject,
+    jlong nativeHandle,
+    jbyteArray buffer,
+    jint off,
+    jint len) {
+  JNI_METHOD_START
+  auto* input = reinterpret_cast<std::istream*>(nativeHandle);
+  if (input == nullptr) {
+    return static_cast<jint>(-1);
+  }
+  if (buffer == nullptr) {
+    throw gluten::GlutenException("Target buffer is null.");
+  }
+  if (off < 0 || len < 0) {
+    throw gluten::GlutenException("Negative offset or length.");
+  }
+
+  const auto bufferLength = env->GetArrayLength(buffer);
+  if (off + len > bufferLength) {
+    throw gluten::GlutenException("Offset plus length exceeds destination buffer.");
+  }
+  if (len == 0) {
+    return static_cast<jint>(0);
+  }
+
+  std::string temp;
+  temp.resize(len);
+  input->read(temp.data(), len);
+  const auto bytesRead = input->gcount();
+  if (bytesRead <= 0) {
+    return static_cast<jint>(-1);
+  }
+
+  env->SetByteArrayRegion(buffer, off, static_cast<jsize>(bytesRead), reinterpret_cast<const jbyte*>(temp.data()));
+  checkException(env);
+  return static_cast<jint>(bytesRead);
+  JNI_METHOD_END(-1)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_spark_das_DasS3SignerWrapper_close( // NOLINT
+    JNIEnv* env,
+    jobject,
+    jlong nativeHandle) {
+  JNI_METHOD_START
+  auto* input = reinterpret_cast<std::istream*>(nativeHandle);
+  // AWSAuthV4Signer::ComputePayloadHash resets the stream after computing the payload hash.
+  input->clear();
+  input->seekg(0);
+  JNI_METHOD_END()
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,6 +33,7 @@
 
 #ifdef ENABLE_S3
 #include <aws/core/auth/DASCredentialsProvider.h>
+#include "jni/DasS3CredentialsProvider.h"
 #endif
 
 #ifdef ENABLE_ABFS
@@ -172,46 +173,58 @@ void getS3HiveConfig(
   }
 
 #ifdef ENABLE_DAS
-  const std::string kWxdCasApikey = "WXD_CAS_APIKEY";
-  const std::string kWxdCasEndpoint = "WXD_CAS_ENDPOINT";
-  const std::string kWxdInstanceId = "WXD_INSTANCEID";
-  const std::string kWxdSslNoVerify = "WXD_SSL_NO_VERIFY";
-  const std::unordered_map<std::string, std::string> wxdConfMap = {
-      {"spark.hadoop.wxd.cas.endpoint", kWxdCasEndpoint},
-      {"spark.hadoop.wxd.apikey", kWxdCasApikey},
-      {"spark.hadoop.wxd.apiKey", kWxdCasApikey},
-      {"spark.hadoop.wxd.cas.apiKey", kWxdCasApikey},
-      {"spark.hadoop.wxd.instanceId", kWxdInstanceId},
-      {"spark.hadoop.wxd.cas.ssl.no.verify", kWxdSslNoVerify},
-  };
-
-  // Set DAS configurations through environment variables.
-  for (const auto& [confName, envName] : wxdConfMap) {
-    if (conf->valueExists(confName)) {
-      setenv(envName.c_str(), conf->get<std::string>(confName).value().c_str(), 1);
-    }
-  }
-
   const std::string kSimpleAWSCredentialsProvider = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
   const std::string kWastonxCredentialsProvider = "com.ibm.iae.s3.credentialprovider.WatsonxCredentialsProvider";
+
+  const std::string kUseLegacyDasS3Client = "spark.gluten.velox.das.legacyS3Client";
 
   static std::once_flag registerDasS3Flag;
   std::call_once(registerDasS3Flag, [&]() {
     LOG(INFO) << "Registering DAS AWS credentials provider:" << kWastonxCredentialsProvider;
     // Register DASCredentialsProvider.
-    registerAWSCredentialsProvider(
-        kWastonxCredentialsProvider, [kWxdCasApikey, kWxdCasEndpoint](const S3Config& config) {
-          // Raise the same error message as in WatsonxBasicSignatureCredentials.java
-          GLUTEN_CHECK(std::getenv(kWxdCasApikey.c_str()) != nullptr, "Please provide valid api key");
-          GLUTEN_CHECK(
-              std::getenv(kWxdCasEndpoint.c_str()) != nullptr,
-              "Please provide spark.hadoop.wxd.cas.endpoint configuration");
-          bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
-              config.secretKey().has_value() && !config.secretKey().value().empty();
-          const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
-          const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
-          return std::make_shared<Aws::Auth::DASCredentialsProvider>(accessKey, secretKey, config.bucket());
-        });
+    if (conf->get<bool>(kUseLegacyDasS3Client, true)) {
+      const std::string kWxdCasApikey = "WXD_CAS_APIKEY";
+      const std::string kWxdCasEndpoint = "WXD_CAS_ENDPOINT";
+      const std::string kWxdInstanceId = "WXD_INSTANCEID";
+      const std::string kWxdSslNoVerify = "WXD_SSL_NO_VERIFY";
+      const std::unordered_map<std::string, std::string> wxdConfMap = {
+          {"spark.hadoop.wxd.cas.endpoint", kWxdCasEndpoint},
+          {"spark.hadoop.wxd.apikey", kWxdCasApikey},
+          {"spark.hadoop.wxd.apiKey", kWxdCasApikey},
+          {"spark.hadoop.wxd.cas.apiKey", kWxdCasApikey},
+          {"spark.hadoop.wxd.instanceId", kWxdInstanceId},
+          {"spark.hadoop.wxd.cas.ssl.no.verify", kWxdSslNoVerify},
+      };
+
+      // Set DAS configurations through environment variables.
+      for (const auto& [confName, envName] : wxdConfMap) {
+        if (conf->valueExists(confName)) {
+          setenv(envName.c_str(), conf->get<std::string>(confName).value().c_str(), 1);
+        }
+      }
+
+      registerAWSCredentialsProvider(
+          kWastonxCredentialsProvider, [kWxdCasApikey, kWxdCasEndpoint](const S3Config& config) {
+            // Raise the same error message as in WatsonxBasicSignatureCredentials.java
+            GLUTEN_CHECK(std::getenv(kWxdCasApikey.c_str()) != nullptr, "Please provide valid api key");
+            GLUTEN_CHECK(
+                std::getenv(kWxdCasEndpoint.c_str()) != nullptr,
+                "Please provide spark.hadoop.wxd.cas.endpoint configuration");
+            bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
+                config.secretKey().has_value() && !config.secretKey().value().empty();
+            const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
+            const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
+            return std::make_shared<Aws::Auth::DASCredentialsProvider>(accessKey, secretKey, config.bucket());
+          });
+    } else {
+      registerAWSCredentialsProvider(kWastonxCredentialsProvider, [](const S3Config& config) {
+        bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
+            config.secretKey().has_value() && !config.secretKey().value().empty();
+        const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
+        const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
+        return std::make_shared<DasS3CredentialsProvider>(accessKey, secretKey, config.bucket());
+      });
+    }
 
     // Register SimpleAWSCredentialsProvider for bucket fallback path.
     registerAWSCredentialsProvider("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", [](const S3Config& config) {
