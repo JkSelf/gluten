@@ -226,20 +226,11 @@ deploy_jar_pattern "spark-kvstore_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR
 deploy_jar_pattern "spark-launcher_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR"
 
 # Spark SQL and Catalyst - need explicit coordinates
-# Spark 4.0 has these in jars/, while 3.4 and 3.5 have them in external-jars/
-if [ "$SPARK_VERSION_MAJOR" == "4.0" ]; then
-  deploy_jar_pattern "spark-sql_${SCALA_VERSION}-*.jar" "$JARS_DIR" \
-    "org.apache.spark" "spark-sql_${SCALA_VERSION}" "${SPARK_FULL}"
-  
-  deploy_jar_pattern "spark-catalyst_${SCALA_VERSION}-*.jar" "$JARS_DIR" \
-    "org.apache.spark" "spark-catalyst_${SCALA_VERSION}" "${SPARK_FULL}"
-else
-  deploy_jar_pattern "spark-sql_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
-    "org.apache.spark" "spark-sql_${SCALA_VERSION}" "${SPARK_FULL}"
-  
-  deploy_jar_pattern "spark-catalyst_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
-    "org.apache.spark" "spark-catalyst_${SCALA_VERSION}" "${SPARK_FULL}"
-fi
+deploy_jar_pattern "spark-sql_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
+  "org.apache.spark" "spark-sql_${SCALA_VERSION}" "${SPARK_FULL}"
+
+deploy_jar_pattern "spark-catalyst_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
+  "org.apache.spark" "spark-catalyst_${SCALA_VERSION}" "${SPARK_FULL}"
 
 # Network jars
 if [ "$SPARK_VERSION_MAJOR" == "3.4" ]; then
