@@ -88,7 +88,7 @@ find_jar() {
   fi
   
   #find files matching pattern, sort by modification time (newest first), take first
-  local found=$(find "$search_dir" -maxdepth 1 -type f -name "$pattern" 2>/dev/null | sort | head -1)
+  local found=$(find "$search_dir" -type f -name "$pattern" 2>/dev/null | sort | head -1)
   if [ -n "$found" ] && [ -f "$found" ]; then
     echo "$found"
     return 0
@@ -96,7 +96,7 @@ find_jar() {
   
   # Try glob expansion if pattern contains wildcards
   if [[ "$pattern" == *"*"* ]]; then
-    found=$(find "$search_dir" -maxdepth 1 -type f -name "$pattern" 2>/dev/null | head -1)
+    found=$(find "$search_dir" -type f -name "$pattern" 2>/dev/null | head -1)
     if [ -n "$found" ] && [ -f "$found" ]; then
       echo "$found"
       return 0
@@ -209,14 +209,14 @@ deploy_jar_simple "$POM_FILE" "org.apache.spark" "spark-parent_${SCALA_VERSION}"
 echo ""
 echo "[2/6] Deploying common dependencies..."
 # Common external jars - auto-detect versions
-deploy_jar_pattern "jackson-databind-*.jar" "$EXTERNAL_JARS_DIR"
-deploy_jar_pattern "guava-*-jre.jar" "$EXTERNAL_JARS_DIR"
-deploy_jar_pattern "commons-io-*.jar" "$EXTERNAL_JARS_DIR"
+deploy_jar_pattern "jackson-databind-*.jar" "$IBM_SPARK_BASE"
+deploy_jar_pattern "guava-*-jre.jar" "$IBM_SPARK_BASE"
+deploy_jar_pattern "commons-io-*.jar" "$IBM_SPARK_BASE"
 
 echo ""
 echo "[3/6] Deploying Hadoop client jars..."
-deploy_jar_pattern "hadoop-client-api-*.jar" "$EXTERNAL_JARS_DIR"
-deploy_jar_pattern "hadoop-client-runtime-*.jar" "$EXTERNAL_JARS_DIR"
+deploy_jar_pattern "hadoop-client-api-*.jar" "$IBM_SPARK_BASE"
+deploy_jar_pattern "hadoop-client-runtime-*.jar" "$IBM_SPARK_BASE"
 
 echo ""
 echo "[4/6] Deploying Spark core jars..."
@@ -226,42 +226,30 @@ deploy_jar_pattern "spark-kvstore_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR
 deploy_jar_pattern "spark-launcher_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR"
 
 # Spark SQL and Catalyst - need explicit coordinates
-deploy_jar_pattern "spark-sql_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
+deploy_jar_pattern "spark-sql_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
   "org.apache.spark" "spark-sql_${SCALA_VERSION}" "${SPARK_FULL}"
 
-deploy_jar_pattern "spark-catalyst_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
+deploy_jar_pattern "spark-catalyst_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
   "org.apache.spark" "spark-catalyst_${SCALA_VERSION}" "${SPARK_FULL}"
 
 # Network jars
-if [ "$SPARK_VERSION_MAJOR" == "3.4" ]; then
-  # Spark 3.4 has special version for network-common in external-jars
-  deploy_jar_pattern "spark-network-common_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR" \
-    "org.apache.spark" "spark-network-common_${SCALA_VERSION}" "${SPARK_FULL}"
-  deploy_jar_pattern "spark-network-shuffle_${SCALA_VERSION}-*.jar" "$EXTERNAL_JARS_DIR"
-elif [ "$SPARK_VERSION_MAJOR" == "4.0" ]; then
-  # Spark 4.0 has network jars in jars/ directory with exact version
-  deploy_jar_pattern "spark-network-common_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR"
-  deploy_jar_pattern "spark-network-shuffle_${SCALA_VERSION}-${SPARK_FULL}.jar" "$JARS_DIR"
-elif [ "$SPARK_VERSION_MAJOR" == "3.5" ]; then
-  # Spark 3.5 uses external-jars with exact version
-  deploy_jar_pattern "spark-network-common_${SCALA_VERSION}-${SPARK_FULL}.jar" "$EXTERNAL_JARS_DIR"
-  deploy_jar_pattern "spark-network-shuffle_${SCALA_VERSION}-${SPARK_FULL}.jar" "$EXTERNAL_JARS_DIR"
-else
-  echo "Unsupported Spark version: $SPARK_VERSION_MAJOR"
-  echo "Supported versions are: 3.4, 3.5, 4.0"
-  exit 1
-fi
+# Spark 3.4 has special version for network-common in external-jars
+deploy_jar_pattern "spark-network-common_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
+  "org.apache.spark" "spark-network-common_${SCALA_VERSION}" "${SPARK_FULL}"
+deploy_jar_pattern "spark-network-shuffle_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
+  "org.apache.spark" "spark-network-common_${SCALA_VERSION}" "${SPARK_FULL}"
+
 echo ""
 echo "[5/6] Deploying Thrift and other dependencies..."
 # Thrift jars with explicit coordinates
-deploy_jar_pattern "libthrift-*.jar" "$EXTERNAL_JARS_DIR" \
+deploy_jar_pattern "libthrift-*.jar" "$IBM_SPARK_BASE" \
   "org.apache.thrift" "libthrift" "0.12.0"
 
-deploy_jar_pattern "libfb303-*.jar" "$JARS_DIR" \
+deploy_jar_pattern "libfb303-*.jar" "$IBM_SPARK_BASE" \
   "org.apache.thrift" "libfb303" "0.9.3"
 
 # Disaggregated shuffle
-deploy_jar_pattern "spark-disaggregated-shuffle_${SCALA_VERSION}-${SPARK_FULL}_*.jar" "$EXTERNAL_JARS_DIR" \
+deploy_jar_pattern "spark-disaggregated-shuffle_${SCALA_VERSION}-${SPARK_FULL}_*.jar" "$IBM_SPARK_BASE" \
   "com.ibm" "spark-disaggregated-shuffle_${SCALA_VERSION}" "${SPARK_FULL}_1.0.2"
 
 echo ""
@@ -269,21 +257,21 @@ echo "[6/6] Deploying Delta and Hudi connectors..."
 # Delta jars - version varies by Spark version
 case "$SPARK_VERSION_MAJOR" in
   "3.4")
-    deploy_jar_pattern "delta-core_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-core_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-core_${SCALA_VERSION}" "2.4.1"
-    deploy_jar_pattern "delta-storage-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-storage-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-storage" "2.4.1"
     ;;
   "3.5")
-    deploy_jar_pattern "delta-spark_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-spark_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-spark_${SCALA_VERSION}" "3.3.2"
-    deploy_jar_pattern "delta-storage-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-storage-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-storage" "3.3.2"
     ;;
   "4.0")
-    deploy_jar_pattern "delta-spark_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-spark_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-spark_${SCALA_VERSION}" "4.0.0"
-    deploy_jar_pattern "delta-storage-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "delta-storage-*.jar" "$IBM_SPARK_BASE" \
       "io.delta" "delta-storage" "4.0.0"
     ;;
 esac
@@ -291,15 +279,15 @@ esac
 # Hudi jars - version varies by Spark version
 case "$SPARK_VERSION_MAJOR" in
   "3.4")
-    deploy_jar_pattern "hudi-spark3.4-bundle_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "hudi-spark3.4-bundle_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "org.apache.hudi" "hudi-spark3.4-bundle_${SCALA_VERSION}" "0.14.1"
     ;;
   "3.5")
-    deploy_jar_pattern "hudi-spark3.5-bundle_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "hudi-spark3.5-bundle_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "org.apache.hudi" "hudi-spark3.5-bundle_${SCALA_VERSION}" "0.15.0"
     ;;
   "4.0")
-    deploy_jar_pattern "hudi-spark4.0-bundle_${SCALA_VERSION}-*.jar" "$WXD_DIR" \
+    deploy_jar_pattern "hudi-spark4.0-bundle_${SCALA_VERSION}-*.jar" "$IBM_SPARK_BASE" \
       "org.apache.hudi" "hudi-spark4.0-bundle_${SCALA_VERSION}" "1.1.0"
     ;;
 esac
