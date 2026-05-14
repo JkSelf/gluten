@@ -1070,6 +1070,11 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   }
 
   if (numThreads == 1) {
+    // Use default global pool for driver-side build
+    // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
+    // Using runtime pool causes lifecycle management issues
+    auto memoryPool = defaultLeafVeloxMemoryPool();
+
     auto builder = nativeHashTableBuild(
         hashJoinKeys,
         filterColumns,
@@ -1086,7 +1091,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         abandonHashBuildDedupMinRows,
         abandonHashBuildDedupMinPct,
         cb,
-        defaultLeafVeloxMemoryPool());
+        memoryPool);
 
     auto mainTable = builder->uniqueTable();
     mainTable->prepareJoinTable(
@@ -1121,6 +1126,10 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
         threadBatches.push_back(cb[i]);
       }
 
+      // Use default global pool for driver-side build
+      // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
+      auto threadMemoryPool = defaultLeafVeloxMemoryPool();
+
       auto builder = nativeHashTableBuild(
           hashJoinKeys,
           filterColumns,
@@ -1137,7 +1146,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
           abandonHashBuildDedupMinRows,
           abandonHashBuildDedupMinPct,
           threadBatches,
-          defaultLeafVeloxMemoryPool());
+          threadMemoryPool);
 
       hashTableBuilders[t] = std::move(builder);
       otherTables[t] = std::move(hashTableBuilders[t]->uniqueTable());
@@ -1250,6 +1259,114 @@ JNIEXPORT void JNICALL Java_org_apache_spark_das_DasS3SignerWrapper_close( // NO
   // AWSAuthV4Signer::ComputePayloadHash resets the stream after computing the payload hash.
   input->clear();
   input->seekg(0);
+  JNI_METHOD_END()
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_serializeHashTable( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong hashTableHandle) {
+  JNI_METHOD_START
+  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
+  auto serialized = gluten::serializeHashTable(builder);
+  return gluten::getHashTableObjStore()->save(serialized);
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL
+Java_org_apache_gluten_vectorized_HashJoinBuilder_deserializeHashTableWithIgnoreNullKeys( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jbyteArray serializedData,
+    jboolean ignoreNullKeys,
+    jboolean joinHasNullKeys) {
+  JNI_METHOD_START
+
+  jsize dataSize = env->GetArrayLength(serializedData);
+  jbyte* dataPtr = env->GetByteArrayElements(serializedData, nullptr);
+
+  if (dataPtr == nullptr) {
+    throw gluten::GlutenException("Failed to get serialized data");
+  }
+
+  auto builder = gluten::deserializeHashTable(
+      reinterpret_cast<const uint8_t*>(dataPtr),
+      static_cast<size_t>(dataSize),
+      nullptr,
+      static_cast<bool>(ignoreNullKeys),
+      static_cast<bool>(joinHasNullKeys));
+
+  env->ReleaseByteArrayElements(serializedData, dataPtr, JNI_ABORT);
+
+  return gluten::getHashTableObjStore()->save(builder);
+  JNI_METHOD_END(kInvalidObjectHandle)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getSerializedSize( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  auto serialized = ObjectStore::retrieve<gluten::HashTableSerializer::SerializedHashTable>(serializedHandle);
+  return static_cast<jlong>(serialized->size);
+  JNI_METHOD_END(0)
+}
+
+JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getSerializedIgnoreNullKeys( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  auto serialized = ObjectStore::retrieve<gluten::HashTableSerializer::SerializedHashTable>(serializedHandle);
+  return static_cast<jboolean>(serialized->ignoreNullKeys);
+  JNI_METHOD_END(false)
+}
+
+JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getSerializedJoinHasNullKeys( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  auto serialized = ObjectStore::retrieve<gluten::HashTableSerializer::SerializedHashTable>(serializedHandle);
+  return static_cast<jboolean>(serialized->joinHasNullKeys);
+  JNI_METHOD_END(false)
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getBloomFilterBlocksByteSize( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  auto serialized = ObjectStore::retrieve<gluten::HashTableSerializer::SerializedHashTable>(serializedHandle);
+  return static_cast<jlong>(serialized->bloomFilterBlocksByteSize);
+  JNI_METHOD_END(0L)
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getSerializedData( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  auto serialized = ObjectStore::retrieve<gluten::HashTableSerializer::SerializedHashTable>(serializedHandle);
+
+  jbyteArray result = env->NewByteArray(static_cast<jsize>(serialized->size));
+  if (result == nullptr) {
+    throw gluten::GlutenException("Failed to allocate byte array");
+  }
+
+  env->SetByteArrayRegion(
+      result, 0, static_cast<jsize>(serialized->size), reinterpret_cast<const jbyte*>(serialized->data.get()));
+
+  return result;
+  JNI_METHOD_END(nullptr)
+}
+
+JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_releaseSerializedData( // NOLINT
+    JNIEnv* env,
+    jclass,
+    jlong serializedHandle) {
+  JNI_METHOD_START
+  ObjectStore::release(serializedHandle);
   JNI_METHOD_END()
 }
 

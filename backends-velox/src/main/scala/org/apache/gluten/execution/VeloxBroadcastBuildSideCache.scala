@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.execution
 
+import org.apache.gluten.backendsapi.BackendsApiManager
 import org.apache.gluten.backendsapi.velox.VeloxBackendSettings
 import org.apache.gluten.vectorized.HashJoinBuilder
 
@@ -37,6 +38,10 @@ case class BroadcastHashTable(pointer: Long, relation: BuildSideRelation)
  *
  * The complicated part is due to reuse exchange, where multiple BHJ IDs correspond to a
  * `BuildSideRelation`.
+ *
+ * This implementation supports two modes:
+ *   1. Driver-side build (new): Hash table is built and serialized on driver, then broadcast 2.
+ *      Executor-side build (legacy): Each executor builds its own hash table from broadcast data
  */
 object VeloxBroadcastBuildSideCache
   extends Logging
@@ -54,6 +59,12 @@ object VeloxBroadcastBuildSideCache
       .expireAfterAccess(expiredTime, TimeUnit.SECONDS)
       .removalListener(this)
       .build[String, BroadcastHashTable]()
+
+  // Cache for driver-side serialized hash tables to avoid rebuilding for reuse exchange
+  private val driverSerializedCache: Cache[String, SerializedBroadcastHashTable] =
+    Caffeine.newBuilder
+      .expireAfterAccess(expiredTime, TimeUnit.SECONDS)
+      .build[String, SerializedBroadcastHashTable]()
 
   def getOrBuildBroadcastHashTable(
       broadcast: Broadcast[BuildSideRelation],
@@ -75,6 +86,108 @@ object VeloxBroadcastBuildSideCache
       )
   }
 
+  /**
+   * Build hash table on driver and serialize for broadcasting. This version is called from
+   * BroadcastExchangeExec and doesn't need a broadcast variable.
+   *
+   * This is the Spark-native approach where hash table is built in BroadcastExchangeExec.
+   */
+  def buildAndSerializeOnDriverInBroadcastExchange(
+      relation: BuildSideRelation,
+      broadcastContext: BroadcastHashJoinContext): SerializedBroadcastHashTable = {
+
+    val broadcastId = broadcastContext.buildHashTableId
+
+    val cached = driverSerializedCache.getIfPresent(broadcastId)
+    if (cached != null) {
+      logInfo(s"Reusing cached serialized hash table for broadcast ID: $broadcastId")
+      return cached
+    }
+
+    def resetRelation(): Unit = relation match {
+      case r: ColumnarBuildSideRelation => r.reset()
+      case r: UnsafeColumnarBuildSideRelation => r.reset()
+      case _ =>
+    }
+
+    relation.synchronized {
+      val cachedAfterLock = driverSerializedCache.getIfPresent(broadcastId)
+      if (cachedAfterLock != null) {
+        logInfo(s"Reusing cached serialized hash table for broadcast ID: $broadcastId (after lock)")
+        return cachedAfterLock
+      }
+
+      logInfo(
+        s"Building hash table on driver in BroadcastExchangeExec " +
+          s"for broadcast ID: $broadcastId")
+
+      val backendName = BackendsApiManager.getBackendName
+
+      val runtime = org.apache.gluten.runtime.Runtime.createStandalone(
+        backendName,
+        "DriverBroadcastHashTableBuild"
+      )
+
+      try {
+        resetRelation()
+        val startBuildTime = System.currentTimeMillis()
+        val (hashTableHandle, _) = relation match {
+          case r: ColumnarBuildSideRelation =>
+            r.buildHashTableWithRuntime(broadcastContext, runtime)
+          case r: UnsafeColumnarBuildSideRelation =>
+            r.buildHashTableWithRuntime(broadcastContext, runtime)
+          case other =>
+            throw new IllegalArgumentException(
+              s"Unsupported relation type for driver-side build: ${other.getClass.getName}")
+        }
+        try {
+          val buildTimeMs = System.currentTimeMillis() - startBuildTime
+          broadcastContext.buildHashTableTimeMetric.foreach(_ += buildTimeMs)
+          val startSerializeTime = System.currentTimeMillis()
+          val result = SerializedBroadcastHashTable.fromHashTable(hashTableHandle, relation)
+          val serializeTimeMs = System.currentTimeMillis() - startSerializeTime
+
+          logInfo(
+            s"Built and serialized hash table on driver: " +
+              s"size=${result.sizeInBytes} bytes, " +
+              s"rows=${result.numRows}, " +
+              s"serializeTime=${serializeTimeMs}ms " +
+              s"for broadcast ID: $broadcastId")
+
+          broadcastContext.serializeHashTableTimeMetric.foreach(_ += serializeTimeMs)
+          broadcastContext.serializedHashTableSizeMetric.foreach(_ += result.sizeInBytes)
+
+          driverSerializedCache.put(broadcastId, result)
+          result
+        } finally {
+          resetRelation()
+        }
+      } finally {
+        runtime.close()
+      }
+    }
+  }
+
+  /** Deserialize hash table on executor from broadcast data. */
+  def deserializeOnExecutor(
+      serialized: SerializedBroadcastHashTable,
+      broadcastHashTableId: String,
+      deserializeHashTableTimeMetric: Option[org.apache.spark.sql.execution.metric.SQLMetric] =
+        None): BroadcastHashTable = {
+
+    buildSideRelationCache.get(
+      broadcastHashTableId,
+      (_: String) => {
+        logInfo(s"Deserializing hash table on executor for broadcast ID: $broadcastHashTableId")
+        val startTime = System.currentTimeMillis()
+        val hashTableHandle = serialized.deserialize()
+        val timeMs = System.currentTimeMillis() - startTime
+        deserializeHashTableTimeMetric.foreach(_ += timeMs)
+        BroadcastHashTable(hashTableHandle, serialized.buildSideRelation)
+      }
+    )
+  }
+
   /** This is callback from c++ backend. */
   def get(broadcastHashtableId: String): Long = {
     Option(buildSideRelationCache.getIfPresent(broadcastHashtableId))
@@ -90,7 +203,10 @@ object VeloxBroadcastBuildSideCache
   /** Only used in UT. */
   def size(): Long = buildSideRelationCache.estimatedSize()
 
-  def cleanAll(): Unit = buildSideRelationCache.invalidateAll()
+  def cleanAll(): Unit = {
+    buildSideRelationCache.invalidateAll()
+    driverSerializedCache.invalidateAll()
+  }
 
   override def onRemoval(key: String, value: BroadcastHashTable, cause: RemovalCause): Unit = {
     synchronized {

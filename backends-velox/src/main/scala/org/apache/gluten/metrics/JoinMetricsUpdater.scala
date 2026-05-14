@@ -16,6 +16,7 @@
  */
 package org.apache.gluten.metrics
 
+import org.apache.gluten.config.VeloxConfig
 import org.apache.gluten.metrics.Metrics.SingleMetric
 import org.apache.gluten.substrait.JoinParams
 
@@ -129,8 +130,16 @@ class HashJoinMetricsUpdater(override val metrics: Map[String, SQLMetric])
     hashProbeSpilledPartitions += hashProbeMetrics.spilledPartitions
     hashProbeSpilledFiles += hashProbeMetrics.spilledFiles
     hashProbeReplacedWithDynamicFilterRows += hashProbeMetrics.numReplacedWithDynamicFilterRows
-    hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
-    bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
+
+    // Only accumulate dynamic filter metrics when driver-side build is disabled.
+    // When driver-side build is enabled, these metrics are set directly from the
+    // serialized hash table in HashJoinExecTransformer to avoid double counting.
+    val isDriverSideBuildEnabled =
+      VeloxConfig.get.enableDriverSideBroadcastHashTableBuild
+    if (!isDriverSideBuildEnabled) {
+      hashProbeDynamicFiltersProduced += hashProbeMetrics.numDynamicFiltersProduced
+      bloomFilterBlocksByteSize += hashProbeMetrics.bloomFilterBlocksByteSize
+    }
     idx += 1
 
     // HashBuild

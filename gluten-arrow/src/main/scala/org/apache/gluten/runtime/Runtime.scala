@@ -80,4 +80,49 @@ object Runtime {
 
     override def resourceName(): String = s"runtime"
   }
+
+  final private class StandaloneRuntimeImpl(
+      backendName: String,
+      name: String,
+      extraConf: util.Map[String, String])
+    extends Runtime
+    with AutoCloseable {
+
+    private val nmm: NativeMemoryManager with AutoCloseable =
+      NativeMemoryManager.createStandalone(backendName, name)
+    private val handle = RuntimeJniWrapper.createRuntime(
+      backendName,
+      nmm.getHandle(),
+      ConfigUtil.serialize(
+        (GlutenConfig
+          .getNativeSessionConf(
+            backendName,
+            GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs)) ++ extraConf.asScala).asJava)
+    )
+
+    private val released: AtomicBoolean = new AtomicBoolean(false)
+
+    override def getHandle(): Long = handle
+
+    override def memoryManager(): NativeMemoryManager = nmm
+
+    override def close(): Unit = {
+      if (!released.compareAndSet(false, true)) {
+        throw new GlutenException(s"Runtime instance already released: $handle, $name")
+      }
+      RuntimeJniWrapper.releaseRuntime(handle)
+      nmm.close()
+    }
+  }
+
+  def createStandalone(backendName: String, name: String): Runtime with AutoCloseable = {
+    new StandaloneRuntimeImpl(backendName, name, new util.HashMap[String, String]())
+  }
+
+  def createStandalone(
+      backendName: String,
+      name: String,
+      extraConf: util.Map[String, String]): Runtime with AutoCloseable = {
+    new StandaloneRuntimeImpl(backendName, name, extraConf)
+  }
 }

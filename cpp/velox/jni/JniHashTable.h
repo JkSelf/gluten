@@ -21,6 +21,7 @@
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
 #include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/HashTableSerializer.h"
 #include "utils/ObjectStore.h"
 #include "velox/exec/HashTable.h"
 
@@ -90,6 +91,21 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
 long getJoin(const std::string& hashTableId);
+
+// Serialize hash table for broadcasting
+std::shared_ptr<HashTableSerializer::SerializedHashTable> serializeHashTable(std::shared_ptr<HashTableBuilder> builder);
+
+// Deserialize hash table from broadcast data
+std::shared_ptr<HashTableBuilder>
+deserializeHashTable(const uint8_t* data, size_t size, facebook::velox::memory::MemoryPool* memoryPool);
+
+// Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter
+std::shared_ptr<HashTableBuilder> deserializeHashTable(
+    const uint8_t* data,
+    size_t size,
+    facebook::velox::memory::MemoryPool* memoryPool,
+    bool ignoreNullKeys,
+    bool joinHasNullKeys = false);
 
 // Initialize the JNI hash table context
 inline void initVeloxJniHashTable(JNIEnv* env, JavaVM* javaVm) {

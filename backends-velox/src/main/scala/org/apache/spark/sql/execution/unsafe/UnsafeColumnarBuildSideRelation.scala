@@ -93,7 +93,7 @@ class UnsafeColumnarBuildSideRelation(
     private var batches: Seq[UnsafeByteArray],
     private var safeBroadcastMode: SafeBroadcastMode,
     private var newBuildKeys: Seq[Expression],
-    private var offload: Boolean,
+    var offload: Boolean,
     private var buildThreads: Int)
   extends BuildSideRelation
   with Externalizable
@@ -104,6 +104,8 @@ class UnsafeColumnarBuildSideRelation(
   // Rebuild the real BroadcastMode on demand; never serialize it.
   @transient override lazy val mode: BroadcastMode =
     BroadcastModeUtils.fromSafe(safeBroadcastMode, output)
+
+  def getSafeBroadcastMode: SafeBroadcastMode = safeBroadcastMode
 
   // If we stored expression bytes, deserialize once and cache locally (not serialized).
   @transient private lazy val exprKeysFromBytes: Option[Seq[Expression]] = safeBroadcastMode match {
@@ -135,6 +137,92 @@ class UnsafeColumnarBuildSideRelation(
         val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
         val serializeHandle: Long = {
           val allocator = ArrowBufferAllocators.contextInstance()
+          val cSchema = ArrowSchema.allocateNew(allocator)
+          val arrowSchema = SparkArrowUtil.toArrowSchema(
+            SparkShimLoader.getSparkShims.structFromAttributes(output),
+            SQLConf.get.sessionLocalTimeZone)
+          ArrowAbiUtil.exportSchema(allocator, arrowSchema, cSchema)
+          val handle = jniWrapper
+            .init(cSchema.memoryAddress())
+          cSchema.close()
+          handle
+        }
+
+        val batchArray = new ArrayBuffer[Long]
+
+        var batchId = 0
+        while (batchId < batches.size) {
+          val (offset, length) = (batches(batchId).address(), batches(batchId).size())
+          batchArray.append(jniWrapper.deserializeDirect(serializeHandle, offset, length.toInt))
+          batchId += 1
+        }
+
+        logDebug(
+          s"BHJ value size: " +
+            s"${broadcastContext.buildHashTableId} = ${batches.size}")
+
+        val (keys, newOutput) = if (newBuildKeys.isEmpty) {
+          (
+            broadcastContext.buildSideJoinKeys.asJava,
+            broadcastContext.buildSideStructure.asJava
+          )
+        } else {
+          (
+            newBuildKeys.asJava,
+            output.asJava
+          )
+        }
+
+        val joinKeys = keys.asScala.map {
+          key =>
+            val attr = ConverterUtils.getAttrFromExpr(key)
+            ConverterUtils.genColumnNameWithExprId(attr)
+        }.toArray
+
+        val hashJoinBuilder = HashJoinBuilder.create(runtime)
+
+        // Build the hash table
+        hashTableData = hashJoinBuilder
+          .nativeBuild(
+            broadcastContext.buildHashTableId,
+            batchArray.toArray,
+            joinKeys,
+            broadcastContext.filterBuildColumns,
+            broadcastContext.filterPropagatesNulls,
+            broadcastContext.substraitJoinType.ordinal(),
+            broadcastContext.hasMixedFiltCondition,
+            broadcastContext.isExistenceJoin,
+            SubstraitUtil.toNameStruct(newOutput).toByteArray,
+            broadcastContext.isNullAwareAntiJoin,
+            broadcastContext.bloomFilterPushdownSize,
+            buildThreads
+          )
+
+        jniWrapper.close(serializeHandle)
+
+        // Update build hash table time metric
+        val elapsedTime = System.nanoTime() - startTime
+        broadcastContext.buildHashTableTimeMetric.foreach(_ += elapsedTime / 1000000)
+
+        (hashTableData, this)
+      } else {
+        (HashJoinBuilder.cloneHashTable(hashTableData), null)
+      }
+    }
+
+  /**
+   * Build hash table with provided runtime (for driver-side build). This version doesn't rely on
+   * TaskContext and can be called from the driver.
+   */
+  def buildHashTableWithRuntime(
+      broadcastContext: BroadcastHashJoinContext,
+      runtime: org.apache.gluten.runtime.Runtime): (Long, BuildSideRelation) =
+    synchronized {
+      if (hashTableData == 0) {
+        val startTime = System.nanoTime()
+        val jniWrapper = ColumnarBatchSerializerJniWrapper.create(runtime)
+        val serializeHandle: Long = {
+          val allocator = ArrowBufferAllocators.globalInstance()
           val cSchema = ArrowSchema.allocateNew(allocator)
           val arrowSchema = SparkArrowUtil.toArrowSchema(
             SparkShimLoader.getSparkShims.structFromAttributes(output),

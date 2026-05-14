@@ -121,4 +121,67 @@ object NativeMemoryManager {
   def apply(backendName: String, name: String): NativeMemoryManager = {
     TaskResources.addAnonymousResource(new Impl(backendName, name))
   }
+
+  final private class StandaloneImpl(backendName: String, name: String)
+    extends NativeMemoryManager
+    with AutoCloseable {
+    private val LOGGER = LoggerFactory.getLogger(classOf[NativeMemoryManager])
+    private val rl = ReservationListeners.noop()
+    private val handle = NativeMemoryManagerJniWrapper.create(
+      backendName,
+      rl,
+      ConfigUtil.serialize(
+        GlutenConfig
+          .getNativeSessionConf(backendName, GlutenConfigUtil.parseConfig(SQLConf.get.getAllConfs))
+          .asJava)
+    )
+
+    private def collectUsage() = {
+      MemoryUsageStats.parseFrom(NativeMemoryManagerJniWrapper.collectUsage(handle))
+    }
+
+    private val released: AtomicBoolean = new AtomicBoolean(false)
+
+    override def addSpiller(spiller: Spiller): Unit = {}
+    override def hold(): Unit = NativeMemoryManagerJniWrapper.hold(handle)
+    override def getHandle(): Long = handle
+
+    override def close(): Unit = {
+      if (!released.compareAndSet(false, true)) {
+        throw new GlutenException(s"Memory manager instance already released: $handle, $name")
+      }
+
+      def dump(): String = {
+        SparkMemoryUtil.prettyPrintStats(
+          s"[$name]",
+          new KnownNameAndStats() {
+            override def name: String = StandaloneImpl.this.name
+            override def stats: MemoryUsageStats = collectUsage()
+          })
+      }
+
+      if (LOGGER.isDebugEnabled) {
+        LOGGER.debug("About to release memory manager, " + dump())
+      }
+
+      NativeMemoryManagerJniWrapper.release(handle)
+
+      if (rl.getUsedBytes != 0) {
+        LOGGER.warn(
+          String.format(
+            "%s Reservation listener %s still reserved non-zero bytes, which may cause memory" +
+              " leak, size: %s.",
+            name,
+            rl.toString,
+            SparkMemoryUtil.bytesToString(rl.getUsedBytes)
+          ))
+      }
+    }
+  }
+
+  def createStandalone(
+      backendName: String,
+      name: String): NativeMemoryManager with AutoCloseable = {
+    new StandaloneImpl(backendName, name)
+  }
 }

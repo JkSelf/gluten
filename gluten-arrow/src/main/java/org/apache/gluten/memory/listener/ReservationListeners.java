@@ -64,7 +64,7 @@ public final class ReservationListeners {
     return new ManagedReservationListener(target, TaskResources.getSharedUsage(), tmm);
   }
 
-  private static ManagedReservationListener noop() {
+  public static ManagedReservationListener noop() {
     return new ManagedReservationListener(
         new NoopMemoryTarget(), new SimpleMemoryUsageRecorder(), new Object());
   }
