@@ -1,36 +1,38 @@
-<!--
-Thank you for submitting a pull request! Here are some tips:
+# Feature Addition PR Template
 
-1. For first-time contributors, please read our contributing guide:
-   https://github.com/apache/gluten/blob/main/CONTRIBUTING.md
-2. If necessary, create a GitHub issue for discussion beforehand to avoid duplicate work.
-3. If the PR is specific to a single backend, include [VL] or [CH] in the PR title to indicate the
-   Velox or ClickHouse backend, respectively.
-4. If the PR is not ready for review, please mark it as a draft.
--->
+## Summary
 
-## What changes are proposed in this pull request?
+Briefly describe the feature being introduced. And the link to the task/git ticket.
 
-<!--
-Provide a clear and concise description of the changes introduced in this PR.
-Ensure the PR description aligns with the code changes, especially after updates.
-If applicable, include "Fixes #<GitHub_Issue_ID>" to automatically close the corresponding issue
-when the PR is merged.
--->
+## Checklist
 
-## How was this patch tested?
+- [ ] Code follows the project's coding standards
 
-<!--
-Describe how the changes were tested, if applicable.
-Include new tests to validate the functionality, if necessary.
-For UI-related changes, attach screenshots to demonstrate the updates.
--->
+- [ ] Unit tests covering the new feature have been added
 
-## Was this patch authored or co-authored using generative AI tooling?
+- [ ] All existing tests pass
 
-<!--
-If generative AI tooling has been used in the process of authoring this patch, please include the
-phrase: 'Generated-by: ' followed by the name of the tool and its version.
-If no, write 'No'.
-Please refer to the [ASF Generative Tooling Guidance](https://www.apache.org/legal/generative-tooling.html) for details.
--->
+- [ ] The documentation has been updated to reflect the new feature
+  
+- [ ] Make sure no secrets are passed. Run secrets test
+
+## Impact
+
+Discuss any potential impacts this feature may have on existing functionalities.
+
+## Testing
+
+Describe how the feature has been tested, including both automated and manual testing strategies.
+
+## Security Impact
+
+Discuss any potential impacts this feature may have on Security.
+
+## Screenshots/Video
+
+Include screenshots or video demonstrating the new feature, if applicable.
+
+
+## Additional Notes
+
+Any additional information or context relevant to this PR.
