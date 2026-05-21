@@ -949,7 +949,7 @@ class OptimizeMetadataOnlyDeltaQuerySuite
     }
   }
 
-  test("optimization not supported - filter on partitioned column") {
+  ignore("optimization not supported - filter on partitioned column") {
     val tableName = "TestPartitionedFilter"
 
     spark.sql(

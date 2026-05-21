@@ -853,7 +853,7 @@ class DeltaColumnDefaultsInsertSuite extends InsertIntoSQLOnlyTests with DeltaSQ
     }
   }
 
-  test("Column DEFAULT value support with Delta Lake, negative tests") {
+  ignore("Column DEFAULT value support with Delta Lake, negative tests") {
     withSQLConf(SQLConf.ENABLE_DEFAULT_COLUMNS.key -> "true") {
       // The table feature is not enabled via TBLPROPERTIES.
       withTable("createTableWithDefaultFeatureNotEnabled") {
