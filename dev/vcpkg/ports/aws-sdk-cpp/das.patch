@@ -1,0 +1,39 @@
+diff --git a/src/aws-cpp-sdk-core/include/aws/core/auth/AWSCredentialsProvider.h b/src/aws-cpp-sdk-core/include/aws/core/auth/AWSCredentialsProvider.h
+index 8222cdc3361..5a5ee914363 100644
+--- a/src/aws-cpp-sdk-core/include/aws/core/auth/AWSCredentialsProvider.h
++++ b/src/aws-cpp-sdk-core/include/aws/core/auth/AWSCredentialsProvider.h
+@@ -73,6 +73,17 @@ namespace Aws
+              */
+             virtual AWSCredentials GetAWSCredentials() = 0;
+ 
++            virtual bool CanSign() { return false; }
++
++            virtual bool SignRequest(Aws::Http::HttpRequest& request, const char* region, const char* serviceName, bool signBody, std::chrono::milliseconds clockSkewOffset) {
++                AWS_UNREFERENCED_PARAM(request);
++                AWS_UNREFERENCED_PARAM(region);
++                AWS_UNREFERENCED_PARAM(serviceName);
++                AWS_UNREFERENCED_PARAM(signBody);
++                AWS_UNREFERENCED_PARAM(clockSkewOffset);
++                return false;
++            }
++
+         protected:
+             /**
+              * The default implementation keeps up with the cache times and lets you know if it's time to refresh your internal caching
+diff --git a/src/aws-cpp-sdk-core/source/auth/signer/AWSAuthV4Signer.cpp b/src/aws-cpp-sdk-core/source/auth/signer/AWSAuthV4Signer.cpp
+index 3a4240ff008..54455c5d25b 100644
+--- a/src/aws-cpp-sdk-core/source/auth/signer/AWSAuthV4Signer.cpp
++++ b/src/aws-cpp-sdk-core/source/auth/signer/AWSAuthV4Signer.cpp
+@@ -363,7 +363,11 @@ bool AWSAuthV4Signer::SignRequest(Aws::Http::HttpRequest& request, const char* r
+     AWSCredentials credentials = GetCredentials(request.GetServiceSpecificParameters());
+     
+     UpdateUserAgentWithCredentialFeatures(request, credentials.GetContext());
+-    
++
++    if (m_credentialsProvider->CanSign()) {
++        return m_credentialsProvider->SignRequest(request, region, serviceName, signBody, GetClockSkewOffset());
++    }
++
+     return SignRequestWithCreds(request, credentials, region, serviceName, signBody);
+ }
+ 

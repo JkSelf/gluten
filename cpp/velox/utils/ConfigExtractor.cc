@@ -32,8 +32,11 @@
 #ifdef ENABLE_DAS
 
 #ifdef ENABLE_S3
-#include <aws/core/auth/DASCredentialsProvider.h>
+#ifdef GLUTEN_VCPKG
 #include "jni/DasS3CredentialsProvider.h"
+#else
+#include <aws/core/auth/DASCredentialsProvider.h> // Aws das patch is only included in dynamic build.
+#endif
 #endif
 
 #ifdef ENABLE_ABFS
@@ -176,14 +179,20 @@ void getS3HiveConfig(
   const std::string kSimpleAWSCredentialsProvider = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider";
   const std::string kWastonxCredentialsProvider = "com.ibm.iae.s3.credentialprovider.WatsonxCredentialsProvider";
 
-  const std::string kUseLegacyDasS3Client = "spark.gluten.velox.das.legacyS3Client";
-
   static std::once_flag registerDasS3Flag;
   std::call_once(registerDasS3Flag, [&]() {
     LOG(INFO) << "Registering DAS AWS credentials provider:" << kWastonxCredentialsProvider;
     // Register DASCredentialsProvider.
-    if (conf->get<bool>(kUseLegacyDasS3Client, true)) {
-      const std::string kWxdCasApikey = "WXD_CAS_APIKEY";
+#ifdef GLUTEN_VCPKG
+    registerAWSCredentialsProvider(kWastonxCredentialsProvider, [](const S3Config& config) {
+      bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
+          config.secretKey().has_value() && !config.secretKey().value().empty();
+      const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
+      const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
+      return std::make_shared<DasS3CredentialsProvider>(accessKey, secretKey, config.bucket());
+    });
+#else
+    const std::string kWxdCasApikey = "WXD_CAS_APIKEY";
       const std::string kWxdCasEndpoint = "WXD_CAS_ENDPOINT";
       const std::string kWxdInstanceId = "WXD_INSTANCEID";
       const std::string kWxdSslNoVerify = "WXD_SSL_NO_VERIFY";
@@ -216,15 +225,7 @@ void getS3HiveConfig(
             const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
             return std::make_shared<Aws::Auth::DASCredentialsProvider>(accessKey, secretKey, config.bucket());
           });
-    } else {
-      registerAWSCredentialsProvider(kWastonxCredentialsProvider, [](const S3Config& config) {
-        bool hasAkSk = config.accessKey().has_value() && !config.accessKey().value().empty() &&
-            config.secretKey().has_value() && !config.secretKey().value().empty();
-        const auto accessKey = hasAkSk ? config.accessKey().value() : "das-access-key";
-        const auto secretKey = hasAkSk ? config.secretKey().value() : "das-secret-key";
-        return std::make_shared<DasS3CredentialsProvider>(accessKey, secretKey, config.bucket());
-      });
-    }
+#endif
 
     // Register SimpleAWSCredentialsProvider for bucket fallback path.
     registerAWSCredentialsProvider("org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider", [](const S3Config& config) {

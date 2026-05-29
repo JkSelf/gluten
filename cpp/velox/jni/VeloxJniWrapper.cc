@@ -127,7 +127,7 @@ jint JNI_OnLoad(JavaVM* vm, void*) {
   initVeloxJniHashTable(env, vm);
 
 #ifdef ENABLE_DAS
-#ifdef ENABLE_S3
+#if defined(ENABLE_S3) && defined(GLUTEN_VCPKG)
   DasS3CredentialsProvider::init(vm, env);
 #endif
 #ifdef ENABLE_ABFS
