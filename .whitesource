@@ -9,5 +9,17 @@
               "token": "wcBMAy4eIajzSqzQAQf+I+gjycRVdyqhMCxZ5qlTLUMresmxOYUZA3FhJVT4OMHq2YmqkFWsit35haftLogqxmI1/YaMBxL1QCZn+v0yT3oR8ay+WPQTTFgpospjg3RMiERc6C+NaNLPfm7DOZngc2h7L7GRdhvOeFmFVwJ/epZPxTY+SqCnu2rKsbTHFot2qgaN+NIKEGLMTOshlNp8vAapNdDK5ASBGKJ8PTuXw/dZbSwfHNdtzXz4BVHQpSA9xPa4gzOa6TxoTr4nviinouezeNWdP8hHuepRrWy7Qv7q4fLcThsn9Rkb+RHvSdpT7NubZFNP2QG0AG+kY4zJjxKjTTDtKY2xTo0gS8/xaNKQATirlhhSXpJVU0POAU+QwHtbDT8q5IuvhC/ayhZBR+3HjHsKtReXK9epPAQgY7TzAWQg9tbEv2/38ZsUc6E85jeJe3j5S8JCEMCqKOv9T6FiqekNDV+bn3+/BnsBjR7j1mgVD+Yrxxglh3zq7eZW9FeFF+auYF9hlk8rlJoB8yLNQXRfIHuC3JzrPvjEioZL"
           }
 }
-]
+],
+    "remediateSettings": {
+        "workflowRules": {
+        "enabled": true
+        },
+        "leastVulnerablePackageSettings": {
+        "enabled": true
+        }
+    },
+    "scanSettings": {
+        "baseBranches": ["main"],
+        "configMode": "LOCAL"
+    }
 }
