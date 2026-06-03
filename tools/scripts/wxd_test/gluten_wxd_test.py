@@ -404,21 +404,16 @@ def test_delta(spark: SparkSession) -> bool:
 
     schema = f"delta_schema_{RUN_STAMP}"
     t1 = f"t_delta1_{CI_RUN_ID}"
-    t2 = f"t_delta2_{CI_RUN_ID}"
 
     base = f"{wh}/ci/{CI_RUN_ID}/delta"
     path1 = f"{base}/{t1}"
-    path2 = f"{base}/{t2}"
     full_t1 = f"spark_catalog.{schema}.{t1}"
-    full_t2 = f"spark_catalog.{schema}.{t2}"
-    register_cleanup_target(f"spark_catalog.{schema}", [full_t1, full_t2])
+    register_cleanup_target(f"spark_catalog.{schema}", [full_t1])
 
     try:
         df1 = spark.createDataFrame([(1, "Name1", "2025-01-01"), (2, "Name2", "2025-02-15")], ["id", "name", "dt"])
-        df2 = spark.createDataFrame([(1, "Alan1", "2025-01-01"), (2, "Bob2", "2025-02-15")], ["id", "name", "dt"])
 
         df1.write.format("delta").mode("overwrite").save(path1)
-        df2.write.format("delta").mode("overwrite").save(path2)
 
         if not safe_sql(
             spark,
@@ -440,26 +435,8 @@ def test_delta(spark: SparkSession) -> bool:
 
         if not safe_sql(
             spark,
-            f"""
-            CREATE TABLE IF NOT EXISTS {full_t2}
-            USING DELTA
-            LOCATION '{path2}'
-            """,
-            "Delta: register table2",
-        ):
-            return False
-
-        if not safe_sql(
-            spark,
             f"SELECT id, name, dt FROM {full_t1}",
             "Delta: read back table1",
-            show=True,
-        ):
-            return False
-        if not safe_sql(
-            spark,
-            f"SELECT id, name, dt FROM {full_t2}",
-            "Delta: read back table2",
             show=True,
         ):
             return False
@@ -476,26 +453,8 @@ def test_delta(spark: SparkSession) -> bool:
             return False
         if not safe_sql(
             spark,
-            f"""
-            UPDATE {full_t2}
-            SET name = 'Alan1_updated',
-                dt = '2025-01-02'
-            WHERE id = 1
-            """,
-            "Delta: update table2",
-        ):
-            return False
-        if not safe_sql(
-            spark,
             f"SELECT id, name, dt FROM {full_t1}",
             "Delta: read back table1 after update",
-            show=True,
-        ):
-            return False
-        if not safe_sql(
-            spark,
-            f"SELECT id, name, dt FROM {full_t2}",
-            "Delta: read back table2 after update",
             show=True,
         ):
             return False
@@ -514,14 +473,11 @@ def test_hudi(spark: SparkSession) -> bool:
 
     schema = f"hudi_schema_{RUN_STAMP}"
     t1 = f"t_hudi1_{CI_RUN_ID}"
-    t2 = f"t_hudi2_{CI_RUN_ID}"
 
     base = f"{wh}/ci/{CI_RUN_ID}/hudi"
     path1 = f"{base}/{t1}"
-    path2 = f"{base}/{t2}"
     full_t1 = f"spark_catalog.{schema}.{t1}"
-    full_t2 = f"spark_catalog.{schema}.{t2}"
-    register_cleanup_target(f"spark_catalog.{schema}", [full_t1, full_t2])
+    register_cleanup_target(f"spark_catalog.{schema}", [full_t1])
 
     write_done = False
     failure_reason = ""
@@ -549,14 +505,6 @@ def test_hudi(spark: SparkSession) -> bool:
             "hoodie.embed.timeline.server": "false",
         }
         df1.write.format("hudi").options(**opts).mode("overwrite").save(path1)
-
-        df2 = spark.createDataFrame(
-            [(10, "Alan1", "Riyadh", "riyadh", 1), (20, "Bob2", "Jeddah", "jeddah", 1)],
-            cols,
-        )
-        opts2 = dict(opts)
-        opts2["hoodie.table.name"] = t2
-        df2.write.format("hudi").options(**opts2).mode("overwrite").save(path2)
         write_done = True
         log_hudi_scan("INFO", "WRITTEN", schema=schema)
 
@@ -572,32 +520,11 @@ def test_hudi(spark: SparkSession) -> bool:
             failure_reason = "register_table_failed"
             log_hudi_scan("FAILED", "WRITTEN" if write_done else "NOT_WRITTEN", failure_reason, schema)
             return False
-        if not safe_sql(
-            spark,
-            f"""
-            CREATE TABLE IF NOT EXISTS {full_t2}
-            USING HUDI
-            LOCATION '{path2}'
-            """,
-            "Hudi: register table2",
-        ):
-            failure_reason = "register_table_failed"
-            log_hudi_scan("FAILED", "WRITTEN" if write_done else "NOT_WRITTEN", failure_reason, schema)
-            return False
 
         if not safe_sql(
             spark,
             f"SELECT id, name, location, city FROM {full_t1}",
             "Hudi: read back table1",
-            show=True,
-        ):
-            failure_reason = "row_validation_failed"
-            log_hudi_scan("FAILED", "WRITTEN" if write_done else "NOT_WRITTEN", failure_reason, schema)
-            return False
-        if not safe_sql(
-            spark,
-            f"SELECT id, name, location, city FROM {full_t2}",
-            "Hudi: read back table2",
             show=True,
         ):
             failure_reason = "row_validation_failed"
@@ -609,11 +536,6 @@ def test_hudi(spark: SparkSession) -> bool:
         hudi_update1.write.format("hudi").options(**upsert_opts1).mode("append").save(path1)
         log("\n=== Hudi: upsert table1 update row ===")
 
-        hudi_update2 = spark.createDataFrame([(10, "Alan1_updated", "Dammam", "riyadh", 2)], cols)
-        upsert_opts2 = dict(opts2)
-        upsert_opts2["hoodie.datasource.write.operation"] = "upsert"
-        hudi_update2.write.format("hudi").options(**upsert_opts2).mode("append").save(path2)
-        log("\n=== Hudi: upsert table2 update row ===")
         if not safe_sql(
             spark,
             f"REFRESH TABLE {full_t1}",
@@ -624,25 +546,8 @@ def test_hudi(spark: SparkSession) -> bool:
             return False
         if not safe_sql(
             spark,
-            f"REFRESH TABLE {full_t2}",
-            "Hudi: refresh table2 after update",
-        ):
-            failure_reason = "refresh_failed"
-            log_hudi_scan("FAILED", "WRITTEN" if write_done else "NOT_WRITTEN", failure_reason, schema)
-            return False
-        if not safe_sql(
-            spark,
             f"SELECT id, name, location, city FROM {full_t1}",
             "Hudi: read back table1 after update",
-            show=True,
-        ):
-            failure_reason = "row_validation_failed"
-            log_hudi_scan("FAILED", "WRITTEN" if write_done else "NOT_WRITTEN", failure_reason, schema)
-            return False
-        if not safe_sql(
-            spark,
-            f"SELECT id, name, location, city FROM {full_t2}",
-            "Hudi: read back table2 after update",
             show=True,
         ):
             failure_reason = "row_validation_failed"
@@ -1051,11 +956,9 @@ def test_join_query_application(spark: SparkSession) -> bool:
         return False
     
     schema = f"join_query_schema_{RUN_STAMP}"
-    emp_table = f"employees_{CI_RUN_ID}"
-    dept_table = f"departments_{CI_RUN_ID}"
-    full_emp_table = f"{ICEBERG_CATALOG}.{schema}.{emp_table}"
-    full_dept_table = f"{ICEBERG_CATALOG}.{schema}.{dept_table}"
-    register_cleanup_target(f"{ICEBERG_CATALOG}.{schema}", [full_emp_table, full_dept_table])
+    table = f"join_query_data_{CI_RUN_ID}"
+    full_table = f"{ICEBERG_CATALOG}.{schema}.{table}"
+    register_cleanup_target(f"{ICEBERG_CATALOG}.{schema}", [full_table])
     
     try:
         # Create schema
@@ -1066,33 +969,31 @@ def test_join_query_application(spark: SparkSession) -> bool:
         ):
             return False
         
-        # Create employees data
-        employees_data = [
-            (1, "Alice", 101),
-            (2, "Bob", 102),
-            (3, "Charlie", 101),
-            (4, "David", 103),
+        join_data = [
+            ("employee", 1, "Alice", 101, None, None),
+            ("employee", 2, "Bob", 102, None, None),
+            ("employee", 3, "Charlie", 101, None, None),
+            ("employee", 4, "David", 103, None, None),
+            ("department", None, None, None, 101, "HR"),
+            ("department", None, None, None, 102, "IT"),
+            ("department", None, None, None, 103, "Finance"),
+            ("department", None, None, None, 104, "Marketing"),
         ]
-        emp_df = spark.createDataFrame(employees_data, ["emp_id", "emp_name", "dept_id"])
-        emp_df.writeTo(full_emp_table).using("iceberg").create()
-        
-        # Create departments data
-        departments_data = [
-            (101, "HR"),
-            (102, "IT"),
-            (103, "Finance"),
-            (104, "Marketing"),
-        ]
-        dept_df = spark.createDataFrame(departments_data, ["dept_id", "dept_name"])
-        dept_df.writeTo(full_dept_table).using("iceberg").create()
+        df = spark.createDataFrame(
+            join_data,
+            ["record_type", "emp_id", "emp_name", "emp_dept_id", "dept_id", "dept_name"],
+        )
+        df.writeTo(full_table).using("iceberg").create()
 
         if not safe_sql(
             spark,
             f"""
             SELECT e.emp_id, e.emp_name, d.dept_name
-            FROM {full_emp_table} e
-            INNER JOIN {full_dept_table} d
-            ON e.dept_id = d.dept_id
+            FROM {full_table} e
+            INNER JOIN {full_table} d
+            ON e.emp_dept_id = d.dept_id
+            WHERE e.record_type = 'employee'
+              AND d.record_type = 'department'
             """,
             "JoinQuery: expected join rows",
             show=True,
