@@ -1264,8 +1264,6 @@ JNIEXPORT void JNICALL Java_org_apache_spark_das_DasS3SignerWrapper_close( // NO
   // AWSAuthV4Signer::ComputePayloadHash resets the stream after computing the payload hash.
   input->clear();
   input->seekg(0);
-=======
->>>>>>> ec3ac9fd1 (Driver side build hash table)
   JNI_METHOD_END()
 }
 
