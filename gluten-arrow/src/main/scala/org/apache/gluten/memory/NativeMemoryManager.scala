@@ -121,4 +121,5 @@ object NativeMemoryManager {
   def apply(backendName: String, name: String): NativeMemoryManager = {
     TaskResources.addAnonymousResource(new Impl(backendName, name))
   }
+
 }
