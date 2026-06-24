@@ -730,6 +730,7 @@ object GlutenConfig extends ConfigRegistry {
     val authPrefix = HADOOP_PREFIX + ABFS_PREFIX + "account.auth.type."
     val DasSasProvider = "org.apache.hadoop.fs.azurebfs.sas.IbmlhcasSASTokenProvider"
     val accountSuffix = ".dfs.core.windows.net"
+    val SasAuthType = "SAS"
     val accounts = conf
       .filter(entry => entry._1.startsWith(sasProviderPrefix) && entry._2.equals(DasSasProvider))
       .map(
@@ -742,11 +743,32 @@ object GlutenConfig extends ConfigRegistry {
             suffix
           }
         })
-    // Remove the account.auth.type config for accounts using DAS SAS provider.
+
+    def accountAuthType(account: String): Option[String] = {
+      val authTypeWithSuffix = authPrefix + account + accountSuffix
+      val authTypeWithoutSuffix = authPrefix + account
+      conf
+        .get(authTypeWithSuffix)
+        .orElse(conf.get(authTypeWithoutSuffix))
+        .map(_.trim.toUpperCase(Locale.ROOT))
+    }
+
+    // For each account, remove the appropriate config based on auth type
     accounts.foreach {
       account =>
-        nativeConfMap.remove(authPrefix + account)
-        nativeConfMap.remove(authPrefix + account + accountSuffix)
+        accountAuthType(account) match {
+          case Some(SasAuthType) =>
+            // If the auth type is SAS, remove the auth type configuration to prevent the initial
+            // dynamic SAS token registration from being overridden when registerAzureClientProvider
+            // is called again.
+            nativeConfMap.remove(authPrefix + account)
+            nativeConfMap.remove(authPrefix + account + accountSuffix)
+          case _ =>
+            // Otherwise, remove SAS provider configs to avoid registering the dynamic SAS token
+            // provider.
+            nativeConfMap.remove(sasProviderPrefix + account)
+            nativeConfMap.remove(sasProviderPrefix + account + accountSuffix)
+        }
     }
   }
 

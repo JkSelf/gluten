@@ -21,6 +21,10 @@
 #include "utils/ConfigExtractor.h"
 #include "utils/VeloxArrowUtils.h"
 
+#ifdef ENABLE_DAS
+#include "jni/DasAbfsSasTokenProvider.h"
+#endif
+
 #include <string>
 
 #include "arrow/c/bridge.h"
@@ -48,6 +52,9 @@ class VeloxParquetDataSourceABFS final : public VeloxParquetDataSource {
         std::make_shared<facebook::velox::config::ConfigBase>(std::unordered_map<std::string, std::string>(sparkConfs)),
         FileSystemType::kAbfs);
     facebook::velox::filesystems::registerAzureClientProvider(*hiveConf);
+#ifdef ENABLE_DAS
+    DasAbfsSasTokenProvider::registerProvider(*hiveConf);
+#endif
     auto fileSystem = filesystems::getFileSystem(filePath_, hiveConf);
     auto* abfsFileSystem = dynamic_cast<filesystems::AbfsFileSystem*>(fileSystem.get());
     sink_ = std::make_unique<dwio::common::WriteFileSink>(
