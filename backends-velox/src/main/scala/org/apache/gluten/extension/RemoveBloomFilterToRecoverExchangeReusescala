@@ -1,0 +1,472 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.gluten.extension
+
+import org.apache.gluten.execution.{BatchScanExecTransformer, FileSourceScanExecTransformer, FilterExecTransformer, IcebergScanTransformer}
+import org.apache.gluten.expression.VeloxBloomFilterMightContain
+
+import org.apache.spark.internal.Logging
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BloomFilterMightContain, Expression, PredicateHelper, XxHash64}
+import org.apache.spark.sql.catalyst.rules.Rule
+import org.apache.spark.sql.execution.{BinaryExecNode, FileSourceScanExec, FilterExec, SparkPlan}
+import org.apache.spark.sql.execution.adaptive.{BroadcastQueryStageExec, ShuffleQueryStageExec}
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.execution.exchange.ReusedExchangeExec
+import org.apache.spark.sql.types.DataType
+
+import java.util.IdentityHashMap
+import java.util.concurrent.ConcurrentHashMap
+
+import scala.collection.JavaConverters._
+import scala.collection.mutable.ArrayBuffer
+
+/**
+ * Fixes a performance regression in TPC-DS Q24a/Q24b (and similar) queries on the Gluten Velox
+ * backend where asymmetric runtime BloomFilters injected by Spark cause the same large table (e.g.
+ * store_sales) to have different BF counts on the two join-input sides. This asymmetry makes
+ * canonicalized sameResult=false => ReusedExchange is disabled => the large table is scanned twice.
+ *
+ * The fix: on the join-input side that has MORE BloomFilters, precisely strip the extra BF
+ * conjuncts so that the canonicalized plans of the main query and the HAVING correlated
+ * scalar-subquery side become identical. Spark's native ReuseExchange rule then kicks in naturally,
+ * eliminating the duplicate scan.
+ *
+ * The apply() method runs in 5 phases:
+ *
+ * STEP1 Collect: traverse ALL physical joins (including those inside subqueries) in the current
+ * plan and build one JoinInputEntry per join child (leaf-tables-set, output-column signature,
+ * unique BF-keys set). STEP2 Publish: for every entry that carries BFs, publish its bfKeys into a
+ * cross-apply global pool. For each group (leafTables, outputSig) the pool retains the HISTORICALLY
+ * SMALLEST bfKeys set. STEP3 Group: cluster join inputs by (leafTables-set, output-signature) so
+ * that we only compare BF count asymmetry between join inputs that are actually eligible for
+ * exchange reuse. STEP4 Find asymmetry: within the same local group first look for a baseline whose
+ * bfKeys is a proper subset of entry.bfKeys and strictly smaller. If not found, fall back to the
+ * cross-apply global pool. If baseline exists and extraBf = entry.bfKeys -- baseline.bfKeys is
+ * non-empty, mark the entry for stripping. STEP5 Strip precisely: for each marked entry, walk
+ * top-down through all physical Filters under its subtree and drop ONLY those BF conjuncts whose
+ * exprKey is NOT in baseline.bfExprKeys. Leave isnotnull / other predicates intact. Finally graft
+ * the rewritten subtrees back into the original BinaryJoin's left/right children.
+ */
+case class RemoveBloomFilterToRecoverExchangeReuse(spark: SparkSession)
+  extends Rule[SparkPlan]
+  with PredicateHelper
+  with Logging {
+
+  /**
+   * Cross-apply shared pool of the "historically smallest bfKeys set" per exchange-reuse group.
+   *
+   * Rationale: in Q24a the main query (bfCount=2) and the HAVING scalar subquery (bfCount=1) arrive
+   * in two completely separate apply() invocations because AQE splits them across different query
+   * stages. A purely local STEP4 would never see the smaller side as baseline -- the pool bridges
+   * that gap.
+   *
+   * Key = (leafTableNames, outputSignature): dimensions that uniquely define an exchange-reuse
+   * group.
+   *   - leafTableNames: all leaf table names under this join input (e.g. {store_sales} or
+   *     {store_sales,store_returns,store,item,customer} after multi-way joins)
+   *   - outputSignature: sequence of (column-name, data-type) for the join input's output. Only
+   *     join inputs sharing the exact same pair qualify for exchange reuse against each other.
+   *
+   * Value = Set[String] (bfExprKeys): the smallest bfExprKeys set historically published for this
+   * group. Encoding: see exprKey() -- "probe=<attr>:<type>|seed=<long|NONE>" On publish we only
+   * update if the new size is strictly smaller. On lookup only a strict proper-subset ("globalMin
+   * subsetOf entryBfKeys and globalMin != entryBfKeys") is returned as a valid baseline.
+   */
+  private val globalMinBfKeys =
+    new ConcurrentHashMap[(Set[String], Seq[(String, DataType)]), Set[String]]()
+
+  private def publishGlobalMinBfKey(entry: JoinInputEntry): Unit = {
+    val key = (entry.leafTableNames, entry.outputSignature)
+    val current = globalMinBfKeys.get(key)
+    if ((current eq null) || entry.bfExprKeys.size < current.size) {
+      globalMinBfKeys.put(key, entry.bfExprKeys)
+    }
+  }
+
+  private def getGlobalBaselineBfKeys(
+      leafTables: Set[String],
+      outputSig: Seq[(String, DataType)],
+      entryBfKeys: Set[String]): Option[Set[String]] = {
+    val key = (leafTables, outputSig)
+    Option(globalMinBfKeys.get(key))
+      .filter(g => g.subsetOf(entryBfKeys) && g != entryBfKeys)
+  }
+
+  private def isPhysicalFilter(p: SparkPlan): Boolean = p match {
+    case _: FilterExec => true
+    case _: FilterExecTransformer => true
+    case _ => false
+  }
+
+  private def filterCondition(p: SparkPlan): Expression = p match {
+    case FilterExec(cond, _) => cond
+    case FilterExecTransformer(cond, _) => cond
+    case other =>
+      throw new IllegalStateException(s"Not a physical filter: ${other.getClass.getName}")
+  }
+
+  private def filterChild(p: SparkPlan): SparkPlan = p match {
+    case FilterExec(_, c) => c
+    case FilterExecTransformer(_, c) => c
+    case other =>
+      throw new IllegalStateException(s"Not a physical filter: ${other.getClass.getName}")
+  }
+
+  private def copyFilterWith(
+      p: SparkPlan,
+      newCond: Expression,
+      newChild: SparkPlan): SparkPlan = p match {
+    case f: FilterExec =>
+      if ((newCond eq f.condition) && (newChild eq f.child)) f
+      else f.copy(condition = newCond, child = newChild)
+    case f: FilterExecTransformer =>
+      if ((newCond eq f.condition) && (newChild eq f.child)) f
+      else f.copy(condition = newCond, child = newChild)
+    case other =>
+      throw new IllegalStateException(s"Not a physical filter: ${other.getClass.getName}")
+  }
+
+  private def probeSignature(expr: Expression): (String, String, Option[Long]) = {
+    // 1. extract rawProbe (children(1))
+    val rawProbeOpt: Option[Expression] = expr match {
+      case bf: BloomFilterMightContain => Some(bf.children(1))
+      case veloxBf: VeloxBloomFilterMightContain => Some(veloxBf.children(1))
+      case _ => None
+    }
+
+    // 2. resolve probe attribute and optional hash seed
+    val (attrOpt, seedOpt) = rawProbeOpt match {
+      case Some(XxHash64(children, seed)) =>
+        // collectFirst depth-first left-to-right picks up the first Attribute (incl. children.head)
+        (children.headOption.flatMap(_.collectFirst { case a: Attribute => a }), Some(seed))
+      case Some(other) =>
+        (other.collectFirst { case a: Attribute => a }, None)
+      case None =>
+        (None, None)
+    }
+
+    // 3. build the return tuple
+    attrOpt match {
+      case Some(a) => (a.name, a.dataType.simpleString, seedOpt)
+      case None => ("UNKNOWN", "UNKNOWN", seedOpt)
+    }
+  }
+
+  private def exprKey(expr: Expression): String = {
+    val (name, dateType, seedOpt) = probeSignature(expr)
+    s"probe=$name:$dateType|seed=${seedOpt.getOrElse("NONE")}"
+  }
+
+  private def unfoldQueryStages(plan: SparkPlan): SparkPlan =
+    plan.transformDown {
+      case s: ShuffleQueryStageExec => s.plan
+      case b: BroadcastQueryStageExec => b.plan
+      case r: ReusedExchangeExec => r.child
+    }
+
+  private def bloomFilterExprsWithHost(
+      plan: SparkPlan): Seq[(Expression, SparkPlan)] = {
+    val unfolded = unfoldQueryStages(plan)
+    unfolded.collect {
+      case f if isPhysicalFilter(f) =>
+        val condition = filterCondition(f)
+        val conjuncts = splitConjunctivePredicates(condition)
+        conjuncts
+          .filter(isBloomFilter)
+          .map(bf => (bf, f))
+    }.flatten
+  }
+
+  private def stripExtraBloomFilters(
+      root: SparkPlan,
+      baselineBfKeys: Set[String]): (SparkPlan, Int) = {
+    var strippedCount = 0
+    val rewritten = root.transformDown {
+      case f if isPhysicalFilter(f) =>
+        val condition = filterCondition(f)
+        val child = filterChild(f)
+        val conjuncts = splitConjunctivePredicates(condition)
+        val remaining = conjuncts.filter {
+          expr =>
+            val shouldStrip = isBloomFilter(expr) && !baselineBfKeys.contains(exprKey(expr))
+            if (shouldStrip) {
+              strippedCount += 1
+            }
+            !shouldStrip
+        }
+        remaining.reduceOption[Expression](And) match {
+          case Some(cond) if cond.fastEquals(condition) => f
+          case Some(cond) => copyFilterWith(f, cond, child)
+          case None => child
+        }
+    }
+    (rewritten, strippedCount)
+  }
+
+  /**
+   * Extract the table name a leaf (Scan-like) SparkPlan reads from. This is used as one dimension
+   * of the exchange-reuse grouping key. Values are taken directly from strongly-typed fields
+   * (tableIdentifier.table / last segment of Table.name) -- no reliance on plan.simpleString and
+   * its truncation. Unsupported leaf types throw immediately.
+   */
+  private def extractTableName(leaf: SparkPlan): String = {
+    def stripCatalog(name: String): String = {
+      val i = name.lastIndexOf('.')
+      if (i >= 0) name.substring(i + 1) else name
+    }
+
+    leaf match {
+      case f: FileSourceScanExecTransformer =>
+        f.tableIdentifier.map(_.table).get
+      case b: BatchScanExecTransformer =>
+        stripCatalog(b.table.name)
+      case i: IcebergScanTransformer =>
+        stripCatalog(i.table.name)
+      case f: FileSourceScanExec =>
+        f.tableIdentifier.map(_.table).get
+      case b: BatchScanExec =>
+        stripCatalog(b.table.name)
+
+      case _ =>
+        throw new IllegalStateException(
+          s"Unsupported leaf SparkPlan type for table extraction: " +
+            s"${leaf.getClass.getName} (nodeName=${leaf.nodeName})")
+    }
+  }
+
+  /**
+   * Intermediate result shared between STEP1 and STEP4: everything that characterises one side of a
+   * join (one join input).
+   *
+   * @param joinInput
+   *   the actual join-child subtree (used as IdentityHashMap key)
+   * @param hasBf
+   *   whether any BloomFilter conjuncts exist under this subtree
+   * @param outputSignature
+   *   output (name, type) pairs -- required equality dimension for exchange reuse
+   * @param leafTableNames
+   *   set of all leaf table names reachable from this subtree -- required equality dimension for
+   *   exchange reuse
+   * @param bfExprKeys
+   *   unique BloomFilter identity keys encoded via exprKey() -- what STEP4 compares across sides
+   */
+  private case class JoinInputEntry(
+      joinInput: SparkPlan,
+      hasBf: Boolean,
+      outputSignature: Seq[(String, DataType)],
+      leafTableNames: Set[String],
+      bfExprKeys: Set[String])
+
+  /**
+   * STEP4 output: one join-input side that needs BloomFilter stripping plus the baseline it will be
+   * stripped against.
+   *
+   * @param entry
+   *   the side that has MORE BFs (the one carrying extras)
+   * @param baseline
+   *   the reference side (its bfExprKeys are a strict proper subset of entry.bfExprKeys and
+   *   strictly smaller) -- on stripping, only BFs whose exprKey is in baseline.bfExprKeys are kept,
+   *   all the rest are removed.
+   */
+  private case class StripTarget(entry: JoinInputEntry, baseline: JoinInputEntry)
+
+  private def mkEntry(input: SparkPlan): JoinInputEntry = {
+    val withHost = bloomFilterExprsWithHost(input)
+    val bfExprKeys = withHost.map { case (bf, _) => exprKey(bf) }.toSet
+    val hasBf = bfExprKeys.nonEmpty
+    val sig = input.output.map(a => (a.name, a.dataType))
+    val unfolded = unfoldQueryStages(input)
+    val leaves = unfolded.collectLeaves()
+    val leafNames = leaves.map(extractTableName).toSet
+    JoinInputEntry(input, hasBf, sig, leafNames, bfExprKeys)
+  }
+
+  /**
+   * STEP1 helper: traverses ALL physical BinaryJoins inside the current physical plan (including
+   * any nested subqueries) and invokes mkEntry() separately on each join's left and right child.
+   *
+   * @return
+   *   all produced JoinInputEntry instances.
+   */
+  private def collectJoinInputs(
+      plan: SparkPlan): Seq[JoinInputEntry] = {
+    val allInputs = ArrayBuffer[JoinInputEntry]()
+
+    def processJoinInput(input: SparkPlan): Unit = {
+      val entry = mkEntry(input)
+      allInputs += entry
+    }
+
+    plan.collectWithSubqueries {
+      case b: BinaryExecNode =>
+        processJoinInput(b.left)
+        processJoinInput(b.right)
+    }
+
+    allInputs.toSeq
+  }
+
+  private def isBloomFilter(expr: Expression): Boolean = expr match {
+    case _: BloomFilterMightContain => true
+    case _: VeloxBloomFilterMightContain => true
+    case _ => false
+  }
+
+  override def apply(plan: SparkPlan): SparkPlan = {
+
+    // ============================================================
+    // STEP1 Collect JoinInputEntry: for every physical join
+    //       (including nested subqueries), build one entry per
+    //       join child: leaf-tables set, output-signature, and
+    //       unique BloomFilter identity-key set.
+    // ============================================================
+    val allJoinInputs = collectJoinInputs(plan)
+    val bfInputs = allJoinInputs.filter(_.hasBf)
+
+    if (bfInputs.isEmpty) {
+      return plan
+    }
+
+    // ============================================================
+    // STEP2 Publish: every BF-carrying entry publishes its
+    //       bfKeys into the cross-apply global pool. The pool
+    //       keeps only the HISTORICALLY SMALLEST bfKeys per
+    //       (leafSet, outputSig) group.
+    //       This bridges the case where the main query and the
+    //       HAVING sub-query are handled in two separate apply()
+    //       calls and therefore never meet inside a local
+    //       STEP4 run.
+    // ============================================================
+    bfInputs.foreach(publishGlobalMinBfKey)
+
+    // ============================================================
+    // STEP3 Group: cluster join inputs directly by
+    //       (leafTableNames, outputSignature).
+    //       Only pairs that match on BOTH dimensions are
+    //       considered by Spark as exchange-canonicalisation
+    //       equivalent (and therefore eligible for ReusedExchange)
+    //       so asymmetry comparison is strictly scoped to the
+    //       inside of each group.
+    // ============================================================
+    val groupedInputs: Map[(Set[String], Seq[(String, DataType)]), Seq[JoinInputEntry]] =
+      allJoinInputs.groupBy(e => (e.leafTableNames, e.outputSignature))
+
+    // ============================================================
+    // STEP4 Locate asymmetry: for each entry --
+    //       4.1 look for a LOCAL baseline in the same group
+    //           (c.bfKeys subsetOf entry.bfKeys and strictly smaller);
+    //           if found, use it directly.
+    //       4.2 if no local baseline, FALL BACK to the global
+    //           cross-apply pool and use the "historically
+    //           smallest bfKeys" as the baseline.
+    //       4.3 compute extraBf = entry.bfKeys.diff(baseline.bfKeys);
+    //           if non-empty, record the entry as a strip target.
+    // ============================================================
+    val joinInputsToStrip = new IdentityHashMap[SparkPlan, StripTarget]()
+    groupedInputs.foreach {
+      case ((leafTables, outputSig), sameGroupEntries) =>
+        sameGroupEntries.foreach {
+          entry =>
+            if (entry.hasBf) {
+              // 4.1 local baseline lookup
+              val baselineCandidates = sameGroupEntries.filter {
+                c =>
+                  !c.joinInput.eq(entry.joinInput) &&
+                  c.bfExprKeys.subsetOf(entry.bfExprKeys) &&
+                  c.bfExprKeys != entry.bfExprKeys
+              }
+              if (baselineCandidates.nonEmpty) {
+                val baseline = baselineCandidates.minBy(_.bfExprKeys.size)
+                val extraBf = entry.bfExprKeys.diff(baseline.bfExprKeys)
+                if (extraBf.nonEmpty) {
+                  joinInputsToStrip.put(entry.joinInput, StripTarget(entry, baseline))
+                }
+              } else {
+                // 4.2 fallback to cross-apply global pool
+                val globalBaselineBfOpt = getGlobalBaselineBfKeys(
+                  leafTables,
+                  outputSig,
+                  entry.bfExprKeys)
+                globalBaselineBfOpt match {
+                  case Some(globalBfKeys) =>
+                    val extraBf = entry.bfExprKeys.diff(globalBfKeys)
+                    if (extraBf.nonEmpty) {
+                      val syntheticBaseline = JoinInputEntry(
+                        entry.joinInput,
+                        hasBf = true,
+                        entry.outputSignature,
+                        entry.leafTableNames,
+                        globalBfKeys)
+                      joinInputsToStrip.put(
+                        entry.joinInput,
+                        StripTarget(entry, syntheticBaseline))
+                    }
+                  case None =>
+                }
+              }
+            }
+        }
+    }
+
+    if (joinInputsToStrip.isEmpty) {
+      return plan
+    }
+
+    // ============================================================
+    // STEP5.1 Strip BFs precisely: for each strip target walk
+    //         its join-input subtree top-down with transformDown;
+    //         at every physical Filter drop only those BF
+    //         conjuncts whose exprKey is absent from
+    //         baseline.bfExprKeys. Non-BF predicates
+    //         (isnotnull, equality, ranges, ...) are left alone.
+    // ============================================================
+    val childReplacements = new IdentityHashMap[SparkPlan, SparkPlan]()
+    joinInputsToStrip.asScala.foreach {
+      case (joinInputChild, target) =>
+        val (result, strippedCount) = stripExtraBloomFilters(
+          joinInputChild,
+          target.baseline.bfExprKeys)
+        if (strippedCount > 0) {
+          childReplacements.put(joinInputChild, result)
+        }
+    }
+
+    // ============================================================
+    // STEP5.2 Graft rewritten join-input children back into the
+    //         original BinaryJoin nodes. One single O(N)
+    //         transformDown pass over the whole plan -- only
+    //         BinaryJoin nodes are candidates for replacement.
+    //         Do NOT wrap with transformWithSubqueries at an
+    //         outer level or you get O(N^2) duplicate traversals.
+    // ============================================================
+    if (childReplacements.isEmpty) {
+      plan
+    } else {
+      val reps = childReplacements.asScala
+      plan.transformDown {
+        case b: BinaryExecNode =>
+          val left = b.left
+          val right = b.right
+          val newLeft = reps.getOrElse(left, left)
+          val newRight = reps.getOrElse(right, right)
+          if ((newLeft eq left) && (newRight eq right)) b
+          else b.withNewChildren(Seq(newLeft, newRight))
+      }
+    }
+  }
+}
