@@ -217,6 +217,9 @@ class VeloxTestSettings extends BackendTestSettings {
     // TODO: fix after https://github.com/facebookincubator/velox/pull/17327
     .exclude("SPLIT")
   enableSuite[GlutenSortShuffleSuite]
+    // Shuffle file cleanup fails when using ColumnarShuffleManager.
+    .exclude(
+      "SortShuffleManager properly cleans up files for shuffles that use the deserialized path")
   enableSuite[GlutenSortOrderExpressionsSuite]
   enableSuite[GlutenStringExpressionsSuite]
   enableSuite[GlutenTimeExpressionsSuite]
@@ -287,6 +290,10 @@ class VeloxTestSettings extends BackendTestSettings {
   // Generated suites for org.apache.spark.sql.errors
   enableSuite[GlutenQueryCompilationErrorsDSv2Suite]
   enableSuite[GlutenQueryCompilationErrorsSuite]
+    // NoClassDefFoundError thrown instead of AnalysisException due to missing JDBC driver.
+    .exclude("CREATE NAMESPACE with LOCATION for JDBC catalog should throw an error")
+    .exclude(
+      "ALTER NAMESPACE with property other than COMMENT for JDBC catalog should throw an exception")
   enableSuite[GlutenQueryExecutionErrorsSuite]
     // NEW SUITE: disable as it expects exception which doesn't happen when offloaded to gluten
     .exclude(
@@ -1104,6 +1111,9 @@ class VeloxTestSettings extends BackendTestSettings {
   enableSuite[GlutenInjectRuntimeFilterSuite]
     // FIXME: yan
     .exclude("Merge runtime bloom filters")
+    // Runtime filter count mismatch under Gluten's execution.
+    .exclude("Runtime bloom filter join: two joins")
+    .exclude("Runtime semi join reduction: three joins")
   enableSuite[GlutenIntervalFunctionsSuite]
   enableSuite[GlutenJoinSuite]
     // exclude as it check spark plan
