@@ -1,0 +1,178 @@
+# Staging Rebase Fix Runbook
+
+This document describes the manual steps to fix a failed cherry-pick reported in a rebase issue.
+
+## Prerequisites
+
+- `JENKINS_TOKEN` environment variable set to a valid GitHub token with repo access
+- `gh` CLI configured for `github.ibm.com`
+- `git` remote `lakehouse` pointing to `github.ibm.com:lakehouse/gluten.git`
+
+---
+
+## Step 1 — Setup remote and fetch latest remote branches
+
+```bash
+# Setup lakehouse remote (rename if name conflicts with a different URL)
+if git remote | grep -q '^lakehouse$'; then
+  if [ "$(git remote get-url lakehouse)" != "git@github.ibm.com:lakehouse/gluten.git" ]; then
+    git remote rename lakehouse "lakehouse_$(date +%Y%m%d)"
+    git remote add lakehouse git@github.ibm.com:lakehouse/gluten.git
+  fi
+else
+  git remote add lakehouse git@github.ibm.com:lakehouse/gluten.git
+fi
+
+git fetch lakehouse
+```
+
+## Step 2 — Hard reset current repo to `lakehouse/main`
+
+```bash
+git reset --hard lakehouse/main
+```
+
+## Step 3 — Find the failed PR from the rebase issue
+
+Fetch the last comment of the rebase issue and extract:
+- The failed **PR number** and its **head branch name**
+- The **Base time**
+
+```bash
+GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  gh issue view <ISSUE_NUMBER> --repo lakehouse/gluten \
+  --comments --json comments --jq '.comments[-1].body'
+```
+
+Look for a line like:
+
+```
+Failed to cherry-pick item [<PR Title>](https://github.ibm.com/lakehouse/gluten/pull/<PR_NUMBER>#issuecomment-...) commit 1/1 - <SHA> onto staging/staging-rebase
+```
+
+And a **Base time** line in the same comment:
+
+```
+Base time: `2026-08-14T18:18:21Z`
+```
+
+> **Note:** Do not pipe through `grep` — you need both the failure line (PR number) and the Base time line from the same output.
+
+## Step 4 — Checkout `staging/staging-rebase`
+
+```bash
+git checkout lakehouse/staging/staging-rebase -B staging/staging-rebase
+```
+
+## Step 5 — Get all commits and head branch from the failed PR
+
+```bash
+GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  gh pr view <PR_NUMBER> --repo lakehouse/gluten \
+  --json commits,headRefName --jq '{head: .headRefName, commits: [.commits[].oid]}'
+```
+
+Note the **head branch name** — you need it for Steps 7 and 8.
+
+## Step 6 — Cherry-pick all commits from the PR
+
+```bash
+git cherry-pick <commit1> <commit2> ... <commit7>
+```
+
+If a commit is already present (empty), skip it:
+
+```bash
+git cherry-pick --skip
+```
+
+If there are merge conflicts, you can resolve them using one of two approaches:
+
+### Option A — Resolve conflicts in a separate, new commit on top (Default)
+
+This is the recommended approach. It keeps the original cherry-picked commits completely clean (matching their original state) and captures the conflict resolution in a dedicated commit on top:
+
+1. Temporarily accept HEAD's or the PR's version to allow the cherry-pick to proceed:
+   - **To keep HEAD's version** (e.g., if files were deleted in HEAD):
+     ```bash
+     git rm <conflicted-file>
+     ```
+   - **To keep the PR's version temporarily** (or use `--ours` / `--theirs` to resolve modification conflicts):
+     ```bash
+     git checkout --theirs <conflicted-file>
+     git add <conflicted-file>
+     ```
+2. Continue and finish the cherry-pick:
+   ```bash
+   git cherry-pick --continue --no-edit
+   ```
+3. Create a new commit on top to apply the actual resolution (e.g., restoring/modifying the conflicted files):
+   ```bash
+   # Checkout the original files from the PR's head branch to start resolving:
+   git checkout <PR_HEAD_BRANCH> -- <conflicted-file>
+   
+   # Apply any necessary manual fixes, stage, and commit:
+   git add <conflicted-file>
+   git commit -m "Resolve rebase conflicts for issue <ISSUE_NUMBER> on $(date +%Y-%m-%d)"
+   ```
+
+### Option B — Resolve conflicts directly in the cherry-picked commits (Alternative)
+
+Resolve the conflicts manually in each conflicted file, then stage and continue:
+
+```bash
+git add <conflicted-file>
+git cherry-pick --continue --no-edit
+```
+
+## Step 7 — Force push to the PR's head branch
+
+Push the resolved branch to the PR's original head branch (e.g. `wip_fix_spark40`):
+
+```bash
+git push lakehouse staging/staging-rebase:<PR_HEAD_BRANCH> --force
+```
+
+## Step 8 — Update the PR's base branch
+
+Set the PR's base to `staging/staging-rebase` and confirm head is the PR's branch:
+
+```bash
+GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  gh api repos/lakehouse/gluten/pulls/<PR_NUMBER> \
+  -X PATCH -f base=staging/staging-rebase \
+  --jq '{number,title,baseRefName:.base.ref,headRefName:.head.ref}'
+```
+
+## Step 9 — Comment `alchemy merge @<Base time - 1s>` on the PR
+
+Subtract 1 second from the **Base time** extracted in Step 3, then post the comment:
+
+```bash
+GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  gh pr comment <PR_NUMBER> --repo lakehouse/gluten \
+  --body "alchemy merge @<BASE_TIME_MINUS_1S>"
+```
+
+Example: if Base time is `2026-08-14T18:18:21Z`, comment `alchemy merge @2026-08-14T18:18:20Z`.
+
+## Step 10 — Reopen the original rebase issue
+
+```bash
+GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  gh issue reopen <ISSUE_NUMBER> --repo lakehouse/gluten
+```
+
+---
+
+## Example (Issue 1122 / PR 736)
+
+| Field | Value |
+|---|---|
+| Issue | `1122` |
+| Failed PR | `736` (`wip_fix_spark40`) — "Bump scala compiler version for spark-4.0 build" |
+| Failed commit | `6b25b7a48073124f8df2121d4853fd8c30f0287a` (commit 1/1) |
+| Conflict file | `pom.xml` |
+| Resolution | Kept HEAD's `arrow.deps.scope`, `arrow-memory.scope`, `spark.arrow.exclusion.groupId` properties; bumped `scala.compiler.version` from `4.9.2` → `4.9.9` |
+| Base time | `2026-08-14T18:18:21Z` |
+| Alchemy merge comment | `alchemy merge @2026-08-14T18:18:20Z` |
