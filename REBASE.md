@@ -156,7 +156,34 @@ GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
 
 Example: if Base time is `2026-08-14T18:18:21Z`, comment `alchemy merge @2026-08-14T18:18:20Z`.
 
-## Step 10 — Reopen the original rebase issue
+## Step 10 — Wait for the database to acknowledge the alchemy merge comment
+
+After posting the `alchemy merge @<BASE_TIME_MINUS_1S>` comment, the rebase bot must process it and record the new `time_added` in its database before the issue is reopened. Poll the PR comments until you see a bot reply confirming the update — it will contain the exact timestamp you used, e.g.:
+
+```
+Added: 2026-08-14T18:38:18Z
+```
+
+Poll with a loop (checks every 10 s, exits when the confirmation is found):
+
+```bash
+while true; do
+  RESULT=$(GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+    gh pr view <PR_NUMBER> --repo lakehouse/gluten \
+    --comments --json comments \
+    --jq '[.comments[].body | select(contains("Added: <BASE_TIME_MINUS_1S>"))] | length')
+  if [ "$RESULT" -gt 0 ]; then
+    echo "Database updated — safe to reopen the issue."
+    break
+  fi
+  echo "Waiting for database update..."
+  sleep 10
+done
+```
+
+> **Do not reopen the issue until this confirmation appears.** Reopening too early causes the bot to cherry-pick onto the old `staging/staging-rebase` tip before the new `time_added` is registered, resulting in the same conflict being reported again.
+
+## Step 11 — Reopen the original rebase issue
 
 ```bash
 GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
@@ -173,6 +200,18 @@ GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
 | Failed PR | `736` (`wip_fix_spark40`) — "Bump scala compiler version for spark-4.0 build" |
 | Failed commit | `6b25b7a48073124f8df2121d4853fd8c30f0287a` (commit 1/1) |
 | Conflict file | `pom.xml` |
-| Resolution | Kept HEAD's `arrow.deps.scope`, `arrow-memory.scope`, `spark.arrow.exclusion.groupId` properties; bumped `scala.compiler.version` from `4.9.2` → `4.9.9` |
+| Resolution | Kept HEAD's `arrow-gluten.version`; kept HEAD's removal of `arrow.deps.scope`, `arrow-memory.scope`, `spark.arrow.exclusion.groupId`; bumped `scala.compiler.version` from `4.9.2` → `4.9.9` |
 | Base time | `2026-08-14T18:18:21Z` |
 | Alchemy merge comment | `alchemy merge @2026-08-14T18:18:20Z` |
+
+## Example (Issue 1124 / PR 736)
+
+| Field | Value |
+|---|---|
+| Issue | `1124` |
+| Failed PR | `736` (`wip_fix_spark40`) — "Bump scala compiler version for spark-4.0 build" |
+| Failed commit | `a6d21252e44390188126ee71ba0cb02c2b6fd97c` (commit 1/1) |
+| Conflict file | `pom.xml` |
+| Resolution | Kept HEAD's `arrow-gluten.version`; bumped `scala.compiler.version` from `4.9.2` → `4.9.9` |
+| Base time | `2026-08-14T18:38:19Z` |
+| Alchemy merge comment | `alchemy merge @2026-08-14T18:38:18Z` |
