@@ -4,7 +4,7 @@ This document describes the manual steps to fix a failed cherry-pick reported in
 
 ## Prerequisites
 
-- `JENKINS_TOKEN` environment variable set to a valid GitHub token with repo access
+- `GITHUB_TOKEN` environment variable set to a valid GitHub token with repo access
 - `gh` CLI configured for `github.ibm.com`
 - `git` remote `lakehouse` pointing to `github.ibm.com:lakehouse/gluten.git`
 
@@ -39,7 +39,7 @@ Fetch the last comment of the rebase issue and extract:
 - The **Base time**
 
 ```bash
-GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
   gh issue view <ISSUE_NUMBER> --repo lakehouse/gluten \
   --comments --json comments --jq '.comments[-1].body'
 ```
@@ -67,7 +67,7 @@ git checkout lakehouse/staging/staging-rebase -B staging/staging-rebase
 ## Step 5 — Get all commits and head branch from the failed PR
 
 ```bash
-GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
   gh pr view <PR_NUMBER> --repo lakehouse/gluten \
   --json commits,headRefName --jq '{head: .headRefName, commits: [.commits[].oid]}'
 ```
@@ -138,7 +138,7 @@ git push lakehouse staging/staging-rebase:<PR_HEAD_BRANCH> --force
 Set the PR's base to `staging/staging-rebase` and confirm head is the PR's branch:
 
 ```bash
-GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
   gh api repos/lakehouse/gluten/pulls/<PR_NUMBER> \
   -X PATCH -f base=staging/staging-rebase \
   --jq '{number,title,baseRefName:.base.ref,headRefName:.head.ref}'
@@ -149,7 +149,7 @@ GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
 Subtract 1 second from the **Base time** extracted in Step 3, then post the comment:
 
 ```bash
-GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
   gh pr comment <PR_NUMBER> --repo lakehouse/gluten \
   --body "alchemy merge @<BASE_TIME_MINUS_1S>"
 ```
@@ -168,7 +168,7 @@ Poll with a loop (checks every 10 s, exits when the confirmation is found):
 
 ```bash
 while true; do
-  RESULT=$(GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+  RESULT=$(GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
     gh pr view <PR_NUMBER> --repo lakehouse/gluten \
     --comments --json comments \
     --jq '[.comments[].body | select(contains("Added: <BASE_TIME_MINUS_1S>"))] | length')
@@ -186,7 +186,7 @@ done
 ## Step 11 — Reopen the original rebase issue
 
 ```bash
-GH_TOKEN=$JENKINS_TOKEN GH_HOST=github.ibm.com \
+GH_TOKEN=$GITHUB_TOKEN GH_HOST=github.ibm.com \
   gh issue reopen <ISSUE_NUMBER> --repo lakehouse/gluten
 ```
 
