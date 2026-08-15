@@ -86,7 +86,7 @@ If a commit is already present (empty), skip it:
 git cherry-pick --skip
 ```
 
-If there are merge conflicts, you can resolve them using one of two approaches:
+If there are merge conflicts, you can resolve them using one of two approaches. Make sure to ask user to confirm before commit solved conflicts.
 
 ### Option A — Resolve conflicts in a separate, new commit on top (Default)
 
