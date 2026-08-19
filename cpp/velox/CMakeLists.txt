@@ -179,6 +179,9 @@ set(VELOX_SRCS
     operators/functions/overlay/RegisterFunctionOverlay.cc
     operators/functions/RowConstructorWithNull.cc
     operators/functions/SparkExprToSubfieldFilterParser.cc
+    operators/plannodes/GroupingSetAggregationNode.cc
+    operators/plannodes/GroupingSetLattice.cc
+    operators/plannodes/MultiGroupingSetAggregation.cc
     operators/plannodes/RowVectorStream.cc
     operators/hashjoin/HashTableBuilder.cc
     operators/hashjoin/HashTableSerializer.cc
@@ -517,6 +520,7 @@ target_link_libraries(velox PUBLIC ICU::i18n ICU::uc ICU::data)
 
 if(BUILD_TESTS)
   add_subdirectory(compute/delta/tests)
+  add_subdirectory(operators/plannodes/tests)
   add_subdirectory(tests)
 endif()
 

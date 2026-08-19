@@ -50,6 +50,7 @@
 #include "jni/JniFileSystem.h"
 #include "memory/GlutenBufferedInputBuilder.h"
 #include "operators/functions/SparkExprToSubfieldFilterParser.h"
+#include "operators/plannodes/MultiGroupingSetAggregation.h"
 #include "operators/plannodes/RowVectorStream.h"
 #include "shuffle/ArrowShuffleDictionaryWriter.h"
 #include "udf/UdfLoader.h"
@@ -233,6 +234,10 @@ void VeloxBackend::init(
     }
   }
 #endif
+
+  // Registering the grouping-set translator is inert unless a plan contains a
+  // GroupingSetAggregationNode.
+  velox::exec::registerMultiGroupingSetAggregation();
 
   const int32_t numTaskSlotsPerExecutor = [&]() {
     if (!backendConf_->valueExists(kNumTaskSlotsPerExecutor)) {
