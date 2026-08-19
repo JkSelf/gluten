@@ -83,6 +83,31 @@
     <arrow.version>15.0.0</arrow.version>
     <arrow-gluten.version>15.0.0-gluten</arrow-gluten.version>
     <arrow-memory.artifact>arrow-memory-unsafe</arrow-memory.artifact>
+    <!--
+      Scope of gluten's Arrow dependencies. `compile` means gluten ships its own
+      Arrow inside the bundle jar; `provided` means the Spark distribution on the
+      runtime classpath owns Arrow and gluten only compiles against it. Spark 4.x
+      already ships an Arrow new enough for gluten, so those profiles switch to
+      `provided`.
+    -->
+    <arrow.deps.scope>compile</arrow.deps.scope>
+    <!--
+      Scope of the Arrow allocator *implementation* (${arrow-memory.artifact}).
+      Gluten never compiles against it — `CheckAllocator` discovers it by
+      scanning the classpath at runtime — so it stays out of the compile scope
+      and off downstream modules' compile classpaths. `runtime` still lands it
+      in the shaded bundle; Spark 4.x overrides this with `provided` so Spark's
+      own allocator is used instead.
+    -->
+    <arrow-memory.scope>runtime</arrow-memory.scope>
+    <!--
+      groupId used in the Arrow <exclusion>s on the Spark dependencies below.
+      Set to `org.apache.arrow` (the real groupId) the exclusions apply, so
+      gluten's own bundled Arrow wins. Profiles that use `provided` Arrow
+      override this with a groupId that matches nothing, letting Spark's Arrow
+      through instead.
+    -->
+    <spark.arrow.exclusion.groupId>org.apache.arrow</spark.arrow.exclusion.groupId>
     <hadoop.version>3.4.0</hadoop.version>
     <slf4j.version>2.0.7</slf4j.version>
     <log4j.version>2.20.0</log4j.version>
@@ -193,7 +218,7 @@
         <scope>provided</scope>
         <exclusions>
           <exclusion>
-            <groupId>org.apache.arrow</groupId>
+            <groupId>${spark.arrow.exclusion.groupId}</groupId>
             <artifactId>arrow-vector</artifactId>
           </exclusion>
           <exclusion>
@@ -249,7 +274,7 @@
         <scope>provided</scope>
         <exclusions>
           <exclusion>
-            <groupId>org.apache.arrow</groupId>
+            <groupId>${spark.arrow.exclusion.groupId}</groupId>
             <artifactId>*</artifactId>
           </exclusion>
         </exclusions>
@@ -346,7 +371,7 @@
         <scope>test</scope>
         <exclusions>
           <exclusion>
-            <groupId>org.apache.arrow</groupId>
+            <groupId>${spark.arrow.exclusion.groupId}</groupId>
             <artifactId>*</artifactId>
           </exclusion>
         </exclusions>
@@ -359,7 +384,7 @@
         <scope>test</scope>
         <exclusions>
           <exclusion>
-            <groupId>org.apache.arrow</groupId>
+            <groupId>${spark.arrow.exclusion.groupId}</groupId>
             <artifactId>*</artifactId>
           </exclusion>
           <exclusion>
