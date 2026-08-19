@@ -127,6 +127,7 @@ add_velox_test(
 add_velox_test(
   velox_plan_conversion_test
   SOURCES
+  RawGroupingSetPlanConversionTest.cc
   Substrait2VeloxPlanConversionTest.cc
   Substrait2VeloxPlanValidatorTest.cc
   Substrait2VeloxValuesNodeConversionTest.cc

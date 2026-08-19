@@ -78,6 +78,8 @@ object MetricsUtil extends Logging {
     metrics.flushRowCount = customMetricSum(node, "flushRowCount")
     metrics.abandonedPartialAggregationRows =
       customMetricSum(node, "abandonedPartialAggregationRows")
+    metrics.fusedGroupingSetOperatorInstances = customMetricCount(node, "gsagg.numSets")
+    metrics.fusedGroupingSetsAcrossInstances = customMetricSum(node, "gsagg.numSets")
     metrics.loadedToValueHook = customMetricSum(node, "loadedToValueHook")
     metrics.bloomFilterBlocksByteSize = customMetricSum(node, "bloomFilterSize")
     metrics.bloomFilterTestedRows = customMetricSum(node, "bloomFilterTestedRows")
@@ -241,6 +243,8 @@ object MetricsUtil extends Logging {
     var numDynamicFilterInputRows: Long = 0
     var flushRowCount: Long = 0
     var abandonedPartialAggregationRows: Long = 0
+    var fusedGroupingSetOperatorInstances: Long = 0
+    var fusedGroupingSetsAcrossInstances: Long = 0
     var loadedToValueHook: Long = 0
     var bloomFilterBlocksByteSize: Long = 0
     var bloomFilterTestedRows: Long = 0
@@ -282,6 +286,8 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows += metrics.numDynamicFilterInputRows
       flushRowCount += metrics.flushRowCount
       abandonedPartialAggregationRows += metrics.abandonedPartialAggregationRows
+      fusedGroupingSetOperatorInstances += metrics.fusedGroupingSetOperatorInstances
+      fusedGroupingSetsAcrossInstances += metrics.fusedGroupingSetsAcrossInstances
       loadedToValueHook += metrics.loadedToValueHook
       bloomFilterBlocksByteSize += metrics.bloomFilterBlocksByteSize
       bloomFilterTestedRows += metrics.bloomFilterTestedRows
@@ -330,6 +336,8 @@ object MetricsUtil extends Logging {
       numDynamicFilterInputRows,
       flushRowCount,
       abandonedPartialAggregationRows,
+      fusedGroupingSetOperatorInstances,
+      fusedGroupingSetsAcrossInstances,
       loadedToValueHook,
       bloomFilterBlocksByteSize,
       scanTime,

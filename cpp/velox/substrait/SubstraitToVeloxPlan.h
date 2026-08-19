@@ -26,6 +26,7 @@
 #include "velox/dwio/common/Options.h"
 
 namespace gluten {
+class RawGroupingSetPlanConverter;
 class ResultIterator;
 
 struct SplitInfo {
@@ -246,6 +247,16 @@ class SubstraitToVeloxPlanConverter {
       const RowTypePtr& inputType);
 
  private:
+  friend class RawGroupingSetPlanConverter;
+
+  /// Builds an AggregateRel over an already-converted child. Keeping child
+  /// conversion separate lets raw grouping-set fusion fall back to the exact
+  /// AggregateRel -> ExpandRel pair without consuming the child twice.
+  core::PlanNodePtr makeAggregateNode(const ::substrait::AggregateRel& aggRel, const core::PlanNodePtr& childNode);
+
+  /// Builds the ordinary ExpandNode over an already-converted child.
+  core::PlanNodePtr makeExpandNode(const ::substrait::ExpandRel& expandRel, const core::PlanNodePtr& childNode);
+
   /// Integrate Substrait emit feature. Here a given 'substrait::RelCommon'
   /// is passed and check if emit is defined for this relation. Basically a
   /// ProjectNode is added on top of 'noEmitNode' to represent output order

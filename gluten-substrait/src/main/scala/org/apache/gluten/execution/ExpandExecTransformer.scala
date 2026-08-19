@@ -80,6 +80,16 @@ case class ExpandExecTransformer(
         projectSetExprNodes.add(projectExprNodes)
     }
 
+    if (RawGroupingSetFusion.isMarked(this)) {
+      return RawGroupingSetFusion.makeExpandRel(
+        input,
+        projectSetExprNodes,
+        originalInputAttributes,
+        context,
+        operatorId,
+        validation)
+    }
+
     if (!validation) {
       RelBuilder.makeExpandRel(input, projectSetExprNodes, context, operatorId)
     } else {

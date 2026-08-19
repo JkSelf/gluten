@@ -17,6 +17,7 @@
 
 #include "SubstraitToVeloxPlan.h"
 
+#include "RawGroupingSetPlanConverter.h"
 #include "TypeUtils.h"
 #include "VariantToVectorConverter.h"
 #include "compute/delta/DeltaConnector.h"
@@ -565,7 +566,17 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
 }
 
 core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::AggregateRel& aggRel) {
+  if (auto rawGroupingSetPlan = RawGroupingSetPlanConverter(*this).tryConvert(aggRel)) {
+    return rawGroupingSetPlan;
+  }
+
   auto childNode = convertSingleInput<::substrait::AggregateRel>(aggRel);
+  return makeAggregateNode(aggRel, childNode);
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::makeAggregateNode(
+    const ::substrait::AggregateRel& aggRel,
+    const core::PlanNodePtr& childNode) {
   core::AggregationNode::Step aggStep = toAggregationStep(aggRel);
   const auto& inputType = childNode->outputType();
   std::vector<core::FieldAccessTypedExprPtr> veloxGroupingExprs;
@@ -925,6 +936,12 @@ core::PlanNodePtr SubstraitToVeloxPlanConverter::toVeloxPlan(const ::substrait::
     VELOX_FAIL("Child Rel is expected in ExpandRel.");
   }
 
+  return makeExpandNode(expandRel, childNode);
+}
+
+core::PlanNodePtr SubstraitToVeloxPlanConverter::makeExpandNode(
+    const ::substrait::ExpandRel& expandRel,
+    const core::PlanNodePtr& childNode) {
   const auto& inputType = childNode->outputType();
 
   std::vector<std::vector<core::TypedExprPtr>> projectSetExprs;

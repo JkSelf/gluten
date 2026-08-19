@@ -62,6 +62,12 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableVeloxFlushablePartialAggregation: Boolean =
     getConf(VELOX_FLUSHABLE_PARTIAL_AGGREGATION_ENABLED)
 
+  def enableVeloxFusedGroupingSetAggregate: Boolean =
+    getConf(VELOX_FUSED_GROUPING_SET_AGGREGATE_ENABLED)
+
+  def maxVeloxFusedGroupingSets: Int =
+    getConf(VELOX_FUSED_GROUPING_SET_AGGREGATE_MAX_GROUPING_SETS)
+
   def enableBroadcastBuildRelationInOffheap: Boolean =
     getConf(VELOX_BROADCAST_BUILD_RELATION_USE_OFFHEAP)
 
@@ -453,6 +459,34 @@ object VeloxConfig extends ConfigRegistry {
       )
       .booleanConf
       .createWithDefault(true)
+
+  val VELOX_FUSED_GROUPING_SET_AGGREGATE_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.fusedGroupingSetAggregate.enabled")
+      .doc(
+        "Experimental. Replaces an eligible partial aggregate over Expand with Gluten's native " +
+          "raw-input grouping-set aggregation operator. The operator derives each grouping set " +
+          "from a single raw-input root and abandons ineffective local aggregation adaptively. " +
+          "It reuses the existing partial-aggregation memory and abandonment thresholds. " +
+          "Rejected shapes retain the complete ordinary aggregate-over-Expand plan."
+      )
+      .internal()
+      .experimental()
+      .booleanConf
+      .createWithDefault(false)
+
+  val VELOX_FUSED_GROUPING_SET_AGGREGATE_MAX_GROUPING_SETS =
+    buildConf("spark.gluten.sql.columnar.backend.velox.fusedGroupingSetAggregate.maxGroupingSets")
+      .doc(
+        "Maximum number of distinct grouping sets accepted by the experimental fused " +
+          "grouping-set aggregation operator. Larger shapes retain the ordinary Expand and " +
+          "partial aggregate. The bound limits the number of per-set hash tables and lets " +
+          "native parent lookup use one machine-word candidate bitmap."
+      )
+      .internal()
+      .experimental()
+      .intConf
+      .checkValue(v => v >= 1 && v <= 64, "must be between 1 and 64")
+      .createWithDefault(16)
 
   val MAX_PARTIAL_AGGREGATION_MEMORY =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxPartialAggregationMemory")

@@ -199,6 +199,7 @@ set(VELOX_SRCS
     shuffle/VeloxShuffleReader.cc
     shuffle/VeloxShuffleWriter.cc
     shuffle/VeloxSortShuffleWriter.cc
+    substrait/RawGroupingSetPlanConverter.cc
     substrait/SubstraitExtensionCollector.cc
     substrait/SubstraitParser.cc
     substrait/SubstraitToVeloxExpr.cc

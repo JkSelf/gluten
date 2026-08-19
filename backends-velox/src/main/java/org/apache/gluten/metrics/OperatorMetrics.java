@@ -41,6 +41,8 @@ public class OperatorMetrics implements IOperatorMetrics {
   public long numDynamicFilterInputRows;
   public long flushRowCount;
   public long abandonedPartialAggregationRows;
+  public long fusedGroupingSetOperatorInstances;
+  public long fusedGroupingSetsAcrossInstances;
   public long loadedToValueHook;
   public long bloomFilterBlocksByteSize;
   public long bloomFilterTestedRows;
@@ -95,6 +97,8 @@ public class OperatorMetrics implements IOperatorMetrics {
       long numDynamicFilterInputRows,
       long flushRowCount,
       long abandonedPartialAggregationRows,
+      long fusedGroupingSetOperatorInstances,
+      long fusedGroupingSetsAcrossInstances,
       long loadedToValueHook,
       long bloomFilterBlocksByteSize,
       long scanTime,
@@ -140,6 +144,8 @@ public class OperatorMetrics implements IOperatorMetrics {
     this.numDynamicFilterInputRows = numDynamicFilterInputRows;
     this.flushRowCount = flushRowCount;
     this.abandonedPartialAggregationRows = abandonedPartialAggregationRows;
+    this.fusedGroupingSetOperatorInstances = fusedGroupingSetOperatorInstances;
+    this.fusedGroupingSetsAcrossInstances = fusedGroupingSetsAcrossInstances;
     this.loadedToValueHook = loadedToValueHook;
     this.bloomFilterBlocksByteSize = bloomFilterBlocksByteSize;
     this.skippedSplits = skippedSplits;
