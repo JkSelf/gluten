@@ -248,8 +248,20 @@ object VeloxBackendSettings extends BackendSettingsApi {
         None
       }
     }
+    def validateCosStocatorPath(): Option[String] = {
+      if (!GlutenConfig.get.cosStocatorFallbackEnabled) {
+        return None
+      }
+      distinctRootPaths(rootPaths).find(isIbmCosStocatorPath(_, hadoopConf)).map {
+        path =>
+          s"Path [$path] uses the IBM Cloud Object Storage Stocator bucket.serviceId " +
+            "convention, which the native Velox S3 reader does not yet support."
+      }
+    }
+
     val validationChecks = Seq(
       validateScheme(),
+      validateCosStocatorPath(),
       validateFormats(),
       validateMetadata(),
       validateDataSchema()
@@ -273,6 +285,23 @@ object VeloxBackendSettings extends BackendSettingsApi {
       .filter(_._1 != "file")
       .map(_._2.head._2)
       .toSeq
+  }
+
+  // True for a Stocator cos://bucket.serviceId path with a matching fs.cos.<serviceId>.* config.
+  def isIbmCosStocatorPath(rootPath: String, hadoopConf: Configuration): Boolean = {
+    val uri = new Path(rootPath).toUri
+    if (uri.getScheme != "cos" || uri.getAuthority == null) {
+      return false
+    }
+    val authority = uri.getAuthority
+    val dotIndex = authority.indexOf('.')
+    if (dotIndex <= 0 || dotIndex == authority.length - 1) {
+      return false
+    }
+    val serviceId = authority.substring(dotIndex + 1)
+    Seq("endpoint", "access.key", "secret.key").exists {
+      suffix => hadoopConf.get(s"fs.cos.$serviceId.$suffix") != null
+    }
   }
 
   override def getSubstraitReadFileFormatV1(
