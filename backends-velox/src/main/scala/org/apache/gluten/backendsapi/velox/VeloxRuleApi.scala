@@ -69,6 +69,9 @@ object VeloxRuleApi {
     if (BackendsApiManager.getSettings.supportAppendDataExec()) {
       injector.injectPlannerStrategy(SparkShimLoader.getSparkShims.getRewriteCreateTableAsSelect(_))
     }
+
+    injector.injectQueryStagePrepRule(
+      PullUpExtraPredicateToRecoverExchangeReuse.apply)
   }
 
   /**

@@ -132,6 +132,9 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableGpuAsyncShuffleReader: Boolean = getConf(ENABLE_GPU_ASYNC_SHUFFLE_READER)
 
   def gpuAsyncReaderMaxPrefetchBytes: Long = getConf(GPU_ASYNC_SHUFFLE_READER_MAX_PREFETCH_BYTES)
+
+  def pullUpExtraPredicateToRecoverExchangeReuse: Boolean =
+    getConf(PULL_UP_EXTRA_PREDICATE_TO_RECOVER_EXCHANGE_REUSE)
 }
 
 object VeloxConfig extends ConfigRegistry {
@@ -1038,4 +1041,19 @@ object VeloxConfig extends ConfigRegistry {
       .bytesConf(ByteUnit.BYTE)
       .checkValue(_ > 0, "The max prefetch bytes must be greater than 0.")
       .createWithDefaultString("1GB")
+
+  val PULL_UP_EXTRA_PREDICATE_TO_RECOVER_EXCHANGE_REUSE =
+    buildConf("spark.gluten.sql.columnar.backend.velox.pullUpExtraPredicateToRecoverExchangeReuse")
+      .doc(
+        "When true, if two shuffles read the same tables with the same joins and produce the " +
+          "same output, but one of them carries an extra scan-level predicate the other does " +
+          "not, the more restrictive one is thrown away and rebuilt as the less restrictive one " +
+          "with that predicate evaluated above the shuffle. Both then canonicalize to the same " +
+          "exchange and Spark reuses one instead of scanning the tables twice, which is what " +
+          "makes TPC-DS Q24a/Q24b read store_sales and store_returns once rather than twice " +
+          "after the ssales CTE has been inlined. A mis-fire of this rewrite does not merely " +
+          "produce a slower plan, it returns wrong results, so it should be enabled only after " +
+          "verifying query results on the workload at hand.")
+      .booleanConf
+      .createWithDefault(true)
 }
