@@ -96,6 +96,8 @@ class VeloxConfig(conf: SQLConf) extends GlutenConfig(conf) {
   def enableEnhancedFeatures(): Boolean = ConfigJniWrapper.isEnhancedFeaturesEnabled &&
     getConf(ENABLE_ENHANCED_FEATURES)
 
+  def pinPartitionKeyJoinEnabled: Boolean = getConf(PIN_PARTITION_KEY_JOIN_ENABLED)
+
   def veloxPreferredBatchBytes: Long = getConf(COLUMNAR_VELOX_PREFERRED_BATCH_BYTES)
 
   def cudfEnableTableScan: Boolean = getConf(CUDF_ENABLE_TABLE_SCAN)
@@ -978,6 +980,21 @@ object VeloxConfig extends ConfigRegistry {
       .internal()
       .bytesConf(ByteUnit.BYTE)
       .createWithDefaultString("10MB")
+
+  val PIN_PARTITION_KEY_JOIN_ENABLED =
+    buildConf("spark.gluten.sql.columnar.backend.velox.pinPartitionKeyJoin")
+      .doc(
+        "When true, a large partitioned table and the broadcastable dimension that prunes its " +
+          "partitions are joined into a single item before the cost based join reorder runs, so " +
+          "that the reorder cannot separate them. The reorder costs a join order by cardinality " +
+          "and intermediate size alone and is blind to dynamic partition pruning, runtime " +
+          "filters and join fan-out, all of which are added by later rules, so it can move a " +
+          "dimension away from its fact table and silently lose the pruning that edge would " +
+          "have produced -- TPC-DS q72 on partitioned tables is the motivating case. Has no " +
+          "effect unless spark.sql.cbo.enabled and spark.sql.cbo.joinReorder.enabled are both " +
+          "on, since the reorder is the only thing that takes such a pair apart.")
+      .booleanConf
+      .createWithDefault(true)
 
   val VELOX_MAX_COMPILED_REGEXES =
     buildConf("spark.gluten.sql.columnar.backend.velox.maxCompiledRegexes")

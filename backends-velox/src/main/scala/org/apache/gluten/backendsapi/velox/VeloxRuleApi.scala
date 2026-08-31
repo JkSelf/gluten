@@ -62,6 +62,11 @@ object VeloxRuleApi {
     injector.injectOptimizerRule(PushAggregateThroughJoinBatch.apply)
     injector.injectPlannerStrategy(ImplementJoinAggregate.apply)
 
+    // Keep the cost based join reorder from separating a partitioned table from the dimension that
+    // prunes its partitions, the reorder's cost function is blind to that pruning. Has to run
+    // before the join reorder.
+    injector.injectPreCBORule(_ => new PinPartitionKeyJoins)
+
     if (!BackendsApiManager.getSettings.enableJoinKeysRewrite()) {
       injector.injectPlannerStrategy(_ => org.apache.gluten.extension.GlutenJoinKeysCapture())
     }
