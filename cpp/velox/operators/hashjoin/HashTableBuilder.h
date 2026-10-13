@@ -45,10 +45,18 @@ class HashTableBuilder {
       uint32_t abandonHashBuildDedupMinRows,
       uint32_t abandonHashBuildDedupMinPct);
 
+  /// Wraps a table that was built elsewhere, e.g. deserialized or built by a
+  /// Velox task. 'owner' is kept alive as long as the returned builder.
+  static std::shared_ptr<HashTableBuilder> wrap(
+      std::shared_ptr<facebook::velox::exec::BaseHashTable> table,
+      bool joinHasNullKeys,
+      facebook::velox::memory::MemoryPool* pool,
+      std::shared_ptr<void> owner = nullptr);
+
   void addInput(facebook::velox::RowVectorPtr input);
 
-  void setHashTable(std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueHashTable) {
-    table_ = std::move(uniqueHashTable);
+  void setHashTable(std::shared_ptr<facebook::velox::exec::BaseHashTable> hashTable) {
+    table_ = std::move(hashTable);
   }
 
   std::unique_ptr<facebook::velox::exec::BaseHashTable> uniqueTable() {
@@ -104,6 +112,10 @@ class HashTableBuilder {
 
   // The row type used for hash table build and disk spilling.
   facebook::velox::RowTypePtr tableType_;
+
+  // What a wrapped 'table_' depends on. Declared before 'table_' so that it is
+  // released after it.
+  std::shared_ptr<void> owner_;
 
   // Container for the rows being accumulated.
   std::shared_ptr<facebook::velox::exec::BaseHashTable> table_;

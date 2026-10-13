@@ -1022,145 +1022,32 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
     cb.push_back(ObjectStore::retrieve<ColumnarBatch>(handle));
   }
 
-  if (numThreads == 1) {
-    // Use default global pool for driver-side build
-    // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
-    // Using runtime pool causes lifecycle management issues
-    auto memoryPool = defaultLeafVeloxMemoryPool();
-
-    auto builder = nativeHashTableBuild(
-        hashJoinKeys,
-        filterColumns,
-        filterPropagatesNulls,
-        names,
-        veloxTypeList,
-        joinType,
-        hasMixedJoinCondition,
-        isExistenceJoin,
-        isNullAwareAntiJoin,
-        bloomFilterPushdownSize,
-        minTableRowsForParallelJoinBuild,
-        joinBuildVectorHasherMaxNumDistinct,
-        abandonHashBuildDedupMinRows,
-        abandonHashBuildDedupMinPct,
-        cb,
-        memoryPool);
-
-    auto mainTable = builder->uniqueTable();
-    mainTable->prepareJoinTable(
-        {},
-        facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
-        builder->joinBuildVectorHasherMaxNumDistinct(),
-        builder->dropDuplicates(),
-        nullptr);
-    builder->setHashTable(std::move(mainTable));
-    builder->setHashTableMemoryUsage(builder->hashTable()->allocatedBytes());
-
-    auto* cache = facebook::velox::exec::HashTableCache::instance();
-
-    if (!cache->exist(hashTableId)) {
-      cache->add(hashTableId, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
-    }
-
-    return gluten::getHashTableObjStore()->save(builder);
-  }
-
-  // Use thread pool (executor) instead of creating threads directly.
   // FIXME: This reuses the io executor which is supposed to only serve async IO tasks.
-  auto executor = VeloxBackend::get()->ioExecutor();
-
-  std::vector<std::shared_ptr<gluten::HashTableBuilder>> hashTableBuilders(numThreads);
-  std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> otherTables(numThreads);
-  std::vector<folly::Future<folly::Unit>> futures;
-  futures.reserve(numThreads);
-
-  for (size_t t = 0; t < numThreads; ++t) {
-    size_t start = (handleCount * t) / numThreads;
-    size_t end = (handleCount * (t + 1)) / numThreads;
-
-    // Submit task to thread pool
-    auto future = folly::via(executor, [&, t, start, end]() {
-      std::vector<std::shared_ptr<gluten::ColumnarBatch>> threadBatches;
-      threadBatches.reserve(end - start);
-      for (size_t i = start; i < end; ++i) {
-        threadBatches.push_back(cb[i]);
-      }
-
-      // Use default global pool for driver-side build
-      // The hash table will be serialized and broadcast, so it doesn't need runtime's pool
-      auto threadMemoryPool = defaultLeafVeloxMemoryPool();
-
-      auto builder = nativeHashTableBuild(
-          hashJoinKeys,
-          filterColumns,
-          filterPropagatesNulls,
-          names,
-          veloxTypeList,
-          joinType,
-          hasMixedJoinCondition,
-          isExistenceJoin,
-          isNullAwareAntiJoin,
-          bloomFilterPushdownSize,
-          minTableRowsForParallelJoinBuild,
-          joinBuildVectorHasherMaxNumDistinct,
-          abandonHashBuildDedupMinRows,
-          abandonHashBuildDedupMinPct,
-          threadBatches,
-          threadMemoryPool);
-
-      hashTableBuilders[t] = std::move(builder);
-      otherTables[t] = hashTableBuilders[t]->uniqueTable();
-    });
-
-    futures.push_back(std::move(future));
-  }
-
-  // Wait for all tasks to complete
-  folly::collectAll(futures).wait();
-
-  auto mainTable = std::move(otherTables[0]);
-  std::vector<std::unique_ptr<facebook::velox::exec::BaseHashTable>> tables;
-  for (int i = 1; i < numThreads; ++i) {
-    tables.push_back(std::move(otherTables[i]));
-  }
-  int64_t otherTablesMemoryUsage = 0;
-  for (const auto& table : tables) {
-    otherTablesMemoryUsage += table->allocatedBytes();
-  }
-
-  // TODO: Get accurate signal if parallel join build is going to be applied
-  //  from hash table. Currently there is still a chance inside hash table that
-  //  it might decide it is not going to trigger parallel join build.
-  const bool allowParallelJoinBuild = !tables.empty();
-
-  mainTable->prepareJoinTable(
-      std::move(tables),
-      facebook::velox::exec::BaseHashTable::kNoSpillInputStartPartitionBit,
-      hashTableBuilders[0]->joinBuildVectorHasherMaxNumDistinct(),
-      hashTableBuilders[0]->dropDuplicates(),
-      allowParallelJoinBuild ? VeloxBackend::get()->ioExecutor() : nullptr);
-
-  for (int i = 1; i < numThreads; ++i) {
-    if (hashTableBuilders[i]->joinHasNullKeys()) {
-      hashTableBuilders[0]->setJoinHasNullKeys(true);
-      break;
-    }
-  }
-
-  hashTableBuilders[0]->setHashTable(std::move(mainTable));
-  hashTableBuilders[0]->setHashTableMemoryUsage(
-      hashTableBuilders[0]->hashTable()->allocatedBytes() + otherTablesMemoryUsage);
-
-  auto* cache = facebook::velox::exec::HashTableCache::instance();
-  if (!cache->exist(hashTableId)) {
-    cache->add(
-        hashTableId,
-        hashTableBuilders[0]->hashTable(),
-        hashTableBuilders[0]->joinHasNullKeys(),
-        defaultLeafVeloxMemoryPool());
-  }
-
-  return gluten::getHashTableObjStore()->save(hashTableBuilders[0]);
+  auto* executor = VeloxBackend::get()->ioExecutor();
+  // The build vectors and the table use global pools: the table outlives the
+  // runtime when it is cached or serialized and broadcast.
+  auto builder = nativeHashTableBuild(
+      hashTableId,
+      hashJoinKeys,
+      filterColumns,
+      filterPropagatesNulls,
+      names,
+      veloxTypeList,
+      joinType,
+      hasMixedJoinCondition,
+      isExistenceJoin,
+      isNullAwareAntiJoin,
+      bloomFilterPushdownSize,
+      minTableRowsForParallelJoinBuild,
+      joinBuildVectorHasherMaxNumDistinct,
+      abandonHashBuildDedupMinRows,
+      abandonHashBuildDedupMinPct,
+      cb,
+      executor == nullptr ? 1 : std::max(numThreads, 1),
+      executor,
+      getDefaultMemoryManager()->getAggregateMemoryPool(),
+      defaultLeafVeloxMemoryPool());
+  return gluten::getHashTableObjStore()->save(builder);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 

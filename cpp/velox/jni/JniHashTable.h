@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <folly/Executor.h>
 #include <jni.h>
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
@@ -70,8 +71,12 @@ class JniHashTableContext {
   jmethodID jniGet_{nullptr};
 };
 
-// Return the hash table builder address.
+// Builds the hash table by running Velox HashBuild in a dedicated task, see
+// buildHashTableWithTask(). The table is also added to HashTableCache under
+// 'hashTableId'. 'memoryPool' holds the build vectors and must outlive the
+// returned builder.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
+    const std::string& hashTableId,
     const std::vector<std::string>& joinKeys,
     const std::vector<std::string>& filterBuildColumns,
     bool filterPropagatesNulls,
@@ -87,6 +92,9 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     uint32_t abandonHashBuildDedupMinRows,
     uint32_t abandonHashBuildDedupMinPct,
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    uint32_t numThreads,
+    folly::Executor* executor,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> queryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool);
 
 long getJoin(const std::string& hashTableId);

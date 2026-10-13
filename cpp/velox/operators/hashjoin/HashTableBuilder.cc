@@ -25,6 +25,40 @@
 
 namespace gluten {
 
+std::shared_ptr<HashTableBuilder> HashTableBuilder::wrap(
+    std::shared_ptr<facebook::velox::exec::BaseHashTable> table,
+    bool joinHasNullKeys,
+    facebook::velox::memory::MemoryPool* pool,
+    std::shared_ptr<void> owner) {
+  auto keyTypes = table->rows()->keyTypes();
+  std::vector<std::string> names;
+  for (size_t i = 0; i < keyTypes.size(); ++i) {
+    names.push_back("key" + std::to_string(i));
+  }
+  auto rowType = facebook::velox::ROW(std::move(names), std::move(keyTypes));
+
+  const std::vector<facebook::velox::core::FieldAccessTypedExprPtr> noKeys;
+  const std::vector<column_index_t> noChannels;
+  auto builder = std::make_shared<HashTableBuilder>(
+      facebook::velox::core::JoinType::kInner,
+      false,
+      false,
+      -1,
+      noKeys,
+      noChannels,
+      false,
+      rowType,
+      pool,
+      1000,
+      1000000,
+      100000,
+      0);
+  builder->owner_ = std::move(owner);
+  builder->setHashTable(std::move(table));
+  builder->setJoinHasNullKeys(joinHasNullKeys);
+  return builder;
+}
+
 HashTableBuilder::HashTableBuilder(
     facebook::velox::core::JoinType joinType,
     bool nullAware,

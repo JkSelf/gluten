@@ -24,6 +24,7 @@
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "operators/hashjoin/HashTableSerializer.h"
+#include "operators/hashjoin/HashTableTaskBuilder.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/type.pb.h"
 #include "velox/core/PlanNode.h"
@@ -56,8 +57,8 @@ jlong JniHashTableContext::callJavaGet(const std::string& id) const {
   return result;
 }
 
-// Return the velox's hash table.
 std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
+    const std::string& hashTableId,
     const std::vector<std::string>& joinKeys,
     const std::vector<std::string>& filterBuildColumns,
     bool filterPropagatesNulls,
@@ -73,6 +74,9 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
     uint32_t abandonHashBuildDedupMinRows,
     uint32_t abandonHashBuildDedupMinPct,
     std::vector<std::shared_ptr<ColumnarBatch>>& batches,
+    uint32_t numThreads,
+    folly::Executor* executor,
+    std::shared_ptr<facebook::velox::memory::MemoryPool> queryPool,
     std::shared_ptr<facebook::velox::memory::MemoryPool> memoryPool) {
   auto rowType = std::make_shared<facebook::velox::RowType>(std::move(names), std::move(veloxTypeList));
 
@@ -116,48 +120,37 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
       VELOX_NYI("Unsupported Join type: {}", std::to_string(sJoin));
   }
 
-  std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>> joinKeyTypes;
-  joinKeyTypes.reserve(joinKeys.size());
-  for (const auto& name : joinKeys) {
-    joinKeyTypes.emplace_back(
-        std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(rowType->findChild(name), name));
-  }
-
-  std::vector<uint32_t> filterInputChannels;
-  filterInputChannels.reserve(filterBuildColumns.size());
+  using facebook::velox::core::QueryConfig;
+  HashTableTaskBuildSpec spec;
+  spec.joinType = vJoin;
+  spec.nullAware = isNullAwareAntiJoin;
+  spec.withFilter = hasMixedJoinCondition;
   for (const auto& name : filterBuildColumns) {
-    if (const auto idx = rowType->getChildIdxIfExists(name)) {
-      filterInputChannels.push_back(*idx);
+    if (rowType->containsChild(name) &&
+        std::find(spec.filterBuildColumns.begin(), spec.filterBuildColumns.end(), name) ==
+            spec.filterBuildColumns.end()) {
+      spec.filterBuildColumns.push_back(name);
     }
   }
-  std::sort(filterInputChannels.begin(), filterInputChannels.end());
-  filterInputChannels.erase(
-      std::unique(filterInputChannels.begin(), filterInputChannels.end()), filterInputChannels.end());
+  spec.filterPropagatesNulls = filterPropagatesNulls;
+  spec.buildType = rowType;
+  spec.joinKeys = joinKeys;
+  spec.queryConfigs = {
+      {QueryConfig::kMinTableRowsForParallelJoinBuild, std::to_string(minTableRowsForParallelJoinBuild)},
+      {QueryConfig::kJoinBuildVectorHasherMaxNumDistinct, std::to_string(joinBuildVectorHasherMaxNumDistinct)},
+      {QueryConfig::kAbandonDedupHashMapMinRows, std::to_string(abandonHashBuildDedupMinRows)},
+      {QueryConfig::kAbandonDedupHashMapMinPct, std::to_string(abandonHashBuildDedupMinPct)},
+      {QueryConfig::kHashProbeBloomFilterPushdownMaxSize,
+       std::to_string(std::max<int64_t>(bloomFilterPushdownSize, 0))},
+  };
 
-  auto hashTableBuilder = std::make_shared<HashTableBuilder>(
-      vJoin,
-      isNullAwareAntiJoin,
-      hasMixedJoinCondition,
-      bloomFilterPushdownSize,
-      joinKeyTypes,
-      filterInputChannels,
-      filterPropagatesNulls,
-      rowType,
-      memoryPool.get(),
-      minTableRowsForParallelJoinBuild,
-      joinBuildVectorHasherMaxNumDistinct,
-      abandonHashBuildDedupMinRows,
-      abandonHashBuildDedupMinPct);
-
-  for (auto i = 0; i < batches.size(); i++) {
-    auto rowVector = VeloxColumnarBatch::from(memoryPool.get(), batches[i])->getRowVector();
-    hashTableBuilder->addInput(rowVector);
-    if (hashTableBuilder->noMoreInput()) {
-      break;
-    }
+  std::vector<facebook::velox::RowVectorPtr> buildVectors;
+  buildVectors.reserve(batches.size());
+  for (const auto& batch : batches) {
+    buildVectors.emplace_back(VeloxColumnarBatch::from(memoryPool.get(), batch)->getRowVector());
   }
-
-  return hashTableBuilder;
+  return buildHashTableWithTask(
+      hashTableId, spec, buildVectors, numThreads, executor, std::move(queryPool), memoryPool.get());
 }
 
 long getJoin(const std::string& hashTableId) {
@@ -220,35 +213,7 @@ deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool
     hashTable = std::move(derived);
   }
 
-  std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>> emptyKeys;
-  std::vector<uint32_t> emptyChannels;
-
-  auto keyTypes = hashTable->rows()->keyTypes();
-  std::vector<std::string> names;
-  for (size_t i = 0; i < keyTypes.size(); ++i) {
-    names.push_back("key" + std::to_string(i));
-  }
-  auto rowType = facebook::velox::ROW(std::move(names), std::move(keyTypes));
-
-  auto builder = std::make_shared<HashTableBuilder>(
-      facebook::velox::core::JoinType::kInner,
-      false,
-      false,
-      -1,
-      emptyKeys,
-      emptyChannels,
-      false,
-      rowType,
-      poolPtr,
-      1000,
-      1000000,
-      100000,
-      0);
-
-  builder->setHashTable(std::move(hashTable));
-  // Restore the joinHasNullKeys flag
-  builder->setJoinHasNullKeys(joinHasNullKeys);
-  return builder;
+  return HashTableBuilder::wrap(std::move(hashTable), joinHasNullKeys, poolPtr);
 }
 
 } // namespace gluten
