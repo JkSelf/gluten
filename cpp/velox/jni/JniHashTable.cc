@@ -57,7 +57,7 @@ jlong JniHashTableContext::callJavaGet(const std::string& id) const {
   return result;
 }
 
-std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
+std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
     const std::string& hashTableId,
     const std::vector<std::string>& joinKeys,
     const std::vector<std::string>& filterBuildColumns,
@@ -157,63 +157,50 @@ long getJoin(const std::string& hashTableId) {
   return JniHashTableContext::getInstance().callJavaGet(hashTableId);
 }
 
-size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+size_t serializedHashTableSize(const BroadcastHashTable& hashTable) {
+  const auto& table = hashTable.hashTable();
+  VELOX_CHECK_NOT_NULL(table, "Hash table cannot be null");
 
-  auto hashTable = builder->hashTable();
-  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
-
-  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
+  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(table.get());
   if (hashTableFalse != nullptr) {
     return HashTableSerializer::serializedSize<false>(hashTableFalse);
   }
 
-  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
+  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(table.get());
   VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
   return HashTableSerializer::serializedSize<true>(hashTableTrue);
 }
 
-int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
-  return builder->hashTableMemoryUsage();
-}
-
-void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size) {
-  VELOX_CHECK_NOT_NULL(builder, "Hash table builder cannot be null");
+void serializeHashTableTo(const BroadcastHashTable& hashTable, uint8_t* data, size_t size) {
   VELOX_CHECK_NOT_NULL(data, "Serialized buffer cannot be null");
 
-  auto hashTable = builder->hashTable();
-  VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
+  const auto& table = hashTable.hashTable();
+  VELOX_CHECK_NOT_NULL(table, "Hash table cannot be null");
 
-  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(hashTable.get());
+  auto* hashTableFalse = dynamic_cast<facebook::velox::exec::HashTable<false>*>(table.get());
   if (hashTableFalse != nullptr) {
     HashTableSerializer::serializeTo<false>(hashTableFalse, data, size);
     return;
   }
 
-  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get());
+  auto* hashTableTrue = dynamic_cast<facebook::velox::exec::HashTable<true>*>(table.get());
   VELOX_CHECK_NOT_NULL(hashTableTrue, "Hash table must be either HashTable<false> or HashTable<true>");
   HashTableSerializer::serializeTo<true>(hashTableTrue, data, size);
 }
 
-std::shared_ptr<HashTableBuilder>
+std::shared_ptr<BroadcastHashTable>
 deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys) {
   VELOX_CHECK_NOT_NULL(data, "Serialized data cannot be null");
   VELOX_CHECK_GT(size, 0, "Invalid data size");
 
   auto pool = defaultLeafVeloxMemoryPool();
-  auto* poolPtr = pool.get();
-
-  std::unique_ptr<facebook::velox::exec::BaseHashTable> hashTable;
+  std::shared_ptr<facebook::velox::exec::BaseHashTable> hashTable;
   if (ignoreNullKeys) {
-    auto derived = HashTableSerializer::deserialize<true>(data, size, poolPtr);
-    hashTable = std::move(derived);
+    hashTable = HashTableSerializer::deserialize<true>(data, size, pool.get());
   } else {
-    auto derived = HashTableSerializer::deserialize<false>(data, size, poolPtr);
-    hashTable = std::move(derived);
+    hashTable = HashTableSerializer::deserialize<false>(data, size, pool.get());
   }
-
-  return HashTableBuilder::wrap(std::move(hashTable), joinHasNullKeys, poolPtr);
+  return std::make_shared<BroadcastHashTable>(std::move(hashTable), joinHasNullKeys, 0, std::move(pool));
 }
 
 } // namespace gluten

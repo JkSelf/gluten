@@ -38,7 +38,7 @@
 #include "memory/AllocationListener.h"
 #include "memory/VeloxColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "shuffle/rss/RssPartitionWriter.h"
 #include "substrait/SubstraitToVeloxPlanValidator.h"
 #include "utils/ObjectStore.h"
@@ -1026,7 +1026,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
   auto* executor = VeloxBackend::get()->ioExecutor();
   // The build vectors and the table use global pools: the table outlives the
   // runtime when it is cached or serialized and broadcast.
-  auto builder = nativeHashTableBuild(
+  auto hashTable = nativeHashTableBuild(
       hashTableId,
       hashJoinKeys,
       filterColumns,
@@ -1047,7 +1047,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_native
       executor,
       getDefaultMemoryManager()->getAggregateMemoryPool(),
       defaultLeafVeloxMemoryPool());
-  return gluten::getHashTableObjStore()->save(builder);
+  return gluten::getHashTableObjStore()->save(hashTable);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -1058,14 +1058,13 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_cloneH
     jlong tableHandler) {
   JNI_METHOD_START
   auto cacheKeyStr = jStringToCString(env, cacheKey);
-  auto hashTableHandler = ObjectStore::retrieve<gluten::HashTableBuilder>(tableHandler);
+  auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(tableHandler);
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(
-        cacheKeyStr, hashTableHandler->hashTable(), hashTableHandler->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
   }
 
-  return gluten::getHashTableObjStore()->save(hashTableHandler);
+  return gluten::getHashTableObjStore()->save(hashTable);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -1091,16 +1090,16 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_deseri
     jboolean joinHasNullKeys) {
   JNI_METHOD_START
   auto cacheKeyStr = jStringToCString(env, cacheKey);
-  auto builder = gluten::deserializeHashTable(
+  auto hashTable = gluten::deserializeHashTable(
       reinterpret_cast<const uint8_t*>(address),
       static_cast<size_t>(size),
       static_cast<bool>(ignoreNullKeys),
       static_cast<bool>(joinHasNullKeys));
   auto* cache = facebook::velox::exec::HashTableCache::instance();
   if (!cache->exist(cacheKeyStr)) {
-    cache->add(cacheKeyStr, builder->hashTable(), builder->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
+    cache->add(cacheKeyStr, hashTable->hashTable(), hashTable->joinHasNullKeys(), defaultLeafVeloxMemoryPool());
   }
-  return gluten::getHashTableObjStore()->save(builder);
+  return gluten::getHashTableObjStore()->save(hashTable);
   JNI_METHOD_END(kInvalidObjectHandle)
 }
 
@@ -1109,8 +1108,7 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_get
     jclass,
     jlong hashTableHandle) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
-  auto hashTable = builder->hashTable();
+  const auto& hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle)->hashTable();
   VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
   return static_cast<jboolean>(dynamic_cast<facebook::velox::exec::HashTable<true>*>(hashTable.get()) != nullptr);
   JNI_METHOD_END(false)
@@ -1121,8 +1119,8 @@ JNIEXPORT jboolean JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_get
     jclass,
     jlong hashTableHandle) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
-  return static_cast<jboolean>(builder->joinHasNullKeys());
+  auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle);
+  return static_cast<jboolean>(hashTable->joinHasNullKeys());
   JNI_METHOD_END(false)
 }
 
@@ -1132,8 +1130,7 @@ Java_org_apache_gluten_vectorized_HashJoinBuilder_getHashTableBloomFilterBlocksB
     jclass,
     jlong hashTableHandle) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
-  auto hashTable = builder->hashTable();
+  const auto& hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle)->hashTable();
   VELOX_CHECK_NOT_NULL(hashTable, "Hash table cannot be null");
 
   auto* baseTable = dynamic_cast<facebook::velox::exec::BaseHashTable*>(hashTable.get());
@@ -1159,8 +1156,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_getHas
     jclass,
     jlong hashTableHandle) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
-  return static_cast<jlong>(gluten::hashTableMemoryUsage(builder));
+  auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle);
+  return static_cast<jlong>(hashTable->memoryUsage());
   JNI_METHOD_END(0L)
 }
 
@@ -1169,8 +1166,8 @@ JNIEXPORT jlong JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_serial
     jclass,
     jlong hashTableHandle) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
-  return static_cast<jlong>(gluten::serializedHashTableSize(builder));
+  auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle);
+  return static_cast<jlong>(gluten::serializedHashTableSize(*hashTable));
   JNI_METHOD_END(0L)
 }
 
@@ -1181,12 +1178,12 @@ JNIEXPORT void JNICALL Java_org_apache_gluten_vectorized_HashJoinBuilder_seriali
     jlong address,
     jlong size) {
   JNI_METHOD_START
-  auto builder = ObjectStore::retrieve<gluten::HashTableBuilder>(hashTableHandle);
+  auto hashTable = ObjectStore::retrieve<gluten::BroadcastHashTable>(hashTableHandle);
   VELOX_CHECK_GT(address, 0, "Serialized hash table buffer address must be positive");
   VELOX_CHECK_GE(size, 0, "Serialized hash table buffer size must be non-negative");
-  const auto serializedSize = gluten::serializedHashTableSize(builder);
+  const auto serializedSize = gluten::serializedHashTableSize(*hashTable);
   VELOX_CHECK_EQ(static_cast<size_t>(size), serializedSize, "Hash table buffer size mismatch");
-  gluten::serializeHashTableTo(builder, reinterpret_cast<uint8_t*>(address), serializedSize);
+  gluten::serializeHashTableTo(*hashTable, reinterpret_cast<uint8_t*>(address), serializedSize);
   JNI_METHOD_END()
 }
 

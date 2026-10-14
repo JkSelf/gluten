@@ -19,7 +19,7 @@
 
 #include <folly/Executor.h>
 
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "velox/core/PlanNode.h"
 
 namespace gluten {
@@ -45,11 +45,11 @@ struct HashTableTaskBuildSpec {
 /// true, cacheKey = 'cacheKey') with 'buildVectors' on the build side and an
 /// empty probe side, so HashBuild publishes the table to HashTableCache.
 /// 'numDrivers' > 1 builds in parallel on 'executor' and HashBuild merges the
-/// per-driver tables. 'vectorPool' must outlive the returned builder.
+/// per-driver tables. 'vectorPool' allocates the empty inputs of the fake join.
 ///
-/// The returned builder owns the task's QueryCtx: releasing it drops the cache
+/// The returned table owns the task's QueryCtx: releasing it drops the cache
 /// entry.
-std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
+std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
     const std::string& cacheKey,
     const HashTableTaskBuildSpec& spec,
     const std::vector<facebook::velox::RowVectorPtr>& buildVectors,

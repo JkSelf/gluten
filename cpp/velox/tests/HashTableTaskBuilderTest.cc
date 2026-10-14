@@ -111,7 +111,7 @@ class HashTableTaskBuilderTest : public exec::test::OperatorTestBase, public tes
   }
 
   // Builds with the filter properties the Scala side derives from makeFilter().
-  std::shared_ptr<HashTableBuilder>
+  std::shared_ptr<BroadcastHashTable>
   build(const JoinCase& c, const std::string& key, const std::vector<RowVectorPtr>& vectors) {
     HashTableTaskBuildSpec spec;
     spec.joinType = c.joinType;
@@ -190,7 +190,7 @@ TEST_P(HashTableTaskBuilderTest, sameResultAsHashJoin) {
   auto hashTable = build(c, key, vectors);
   ASSERT_NE(hashTable, nullptr);
   ASSERT_TRUE(cache->exist(key));
-  EXPECT_GT(hashTable->hashTableMemoryUsage(), 0);
+  EXPECT_GT(hashTable->memoryUsage(), 0);
   if (c.numDrivers > 1 && !hashTable->joinHasNullKeys()) {
     // HashBuild built one table per driver and merged them.
     EXPECT_EQ(hashTable->hashTable()->allRows().size(), c.numDrivers);
@@ -251,8 +251,8 @@ TEST_P(HashTableTaskBuilderTest, serializeRoundTrip) {
   auto vectors = makeBuildVectors(c.nullBuildKeys);
   auto hashTable = build(c, key, vectors);
 
-  std::vector<uint8_t> data(serializedHashTableSize(hashTable));
-  serializeHashTableTo(hashTable, data.data(), data.size());
+  std::vector<uint8_t> data(serializedHashTableSize(*hashTable));
+  serializeHashTableTo(*hashTable, data.data(), data.size());
   // As deserializeHashTable(), with the test's pool.
   std::shared_ptr<BaseHashTable> deserialized;
   if (dynamic_cast<HashTable<true>*>(hashTable->hashTable().get()) != nullptr) {

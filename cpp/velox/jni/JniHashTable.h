@@ -21,7 +21,7 @@
 #include <jni.h>
 #include "memory/ColumnarBatch.h"
 #include "memory/VeloxMemoryManager.h"
-#include "operators/hashjoin/HashTableBuilder.h"
+#include "operators/hashjoin/BroadcastHashTable.h"
 #include "utils/ObjectStore.h"
 #include "velox/exec/HashTable.h"
 
@@ -73,9 +73,8 @@ class JniHashTableContext {
 
 // Builds the hash table by running Velox HashBuild in a dedicated task, see
 // buildHashTableWithTask(). The table is also added to HashTableCache under
-// 'hashTableId'. 'memoryPool' holds the build vectors and must outlive the
-// returned builder.
-std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
+// 'hashTableId'. 'memoryPool' converts 'batches' to Velox vectors.
+std::shared_ptr<BroadcastHashTable> nativeHashTableBuild(
     const std::string& hashTableId,
     const std::vector<std::string>& joinKeys,
     const std::vector<std::string>& filterBuildColumns,
@@ -100,16 +99,13 @@ std::shared_ptr<HashTableBuilder> nativeHashTableBuild(
 long getJoin(const std::string& hashTableId);
 
 // Return the exact serialized hash table size for direct buffer allocation.
-size_t serializedHashTableSize(std::shared_ptr<HashTableBuilder> builder);
-
-// Return retained bytes for the hash table, including parallel-build subtables.
-int64_t hashTableMemoryUsage(std::shared_ptr<HashTableBuilder> builder);
+size_t serializedHashTableSize(const BroadcastHashTable& hashTable);
 
 // Serialize hash table directly to a caller-provided buffer.
-void serializeHashTableTo(std::shared_ptr<HashTableBuilder> builder, uint8_t* data, size_t size);
+void serializeHashTableTo(const BroadcastHashTable& hashTable, uint8_t* data, size_t size);
 
 // Deserialize hash table from broadcast data with explicit ignoreNullKeys parameter
-std::shared_ptr<HashTableBuilder>
+std::shared_ptr<BroadcastHashTable>
 deserializeHashTable(const uint8_t* data, size_t size, bool ignoreNullKeys, bool joinHasNullKeys = false);
 
 // Initialize the JNI hash table context

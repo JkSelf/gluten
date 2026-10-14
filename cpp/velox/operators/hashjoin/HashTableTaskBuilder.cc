@@ -91,7 +91,7 @@ struct TableWithPool {
 
 } // namespace
 
-std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
+std::shared_ptr<BroadcastHashTable> buildHashTableWithTask(
     const std::string& cacheKey,
     const HashTableTaskBuildSpec& spec,
     const std::vector<RowVectorPtr>& buildVectors,
@@ -231,7 +231,7 @@ std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
   // HashBuild allocated the table from 'entry->tablePool', but cached it as a
   // plain pointer that does not keep that pool alive. Probe tasks copy that
   // pointer out of the entry and can outlive both the entry and the returned
-  // builder, e.g. when a task fails while Java releases the broadcast table.
+  // table, e.g. when a task fails while Java releases the broadcast table.
   // The pool would then go first and the table would free into a dead pool.
   //
   // So replace the cached pointer with one built by the shared_ptr aliasing
@@ -241,9 +241,8 @@ std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
   auto tableWithPool = std::make_shared<TableWithPool>(TableWithPool{entry->tablePool, entry->table});
   entry->table = std::shared_ptr<exec::BaseHashTable>(tableWithPool, tableWithPool->table.get());
 
-  auto builder = HashTableBuilder::wrap(entry->table, entry->hasNullKeys, vectorPool, std::move(queryCtx));
-  builder->setHashTableMemoryUsage(entry->tablePool->usedBytes());
-  return builder;
+  return std::make_shared<BroadcastHashTable>(
+      entry->table, entry->hasNullKeys, entry->tablePool->usedBytes(), std::move(queryCtx));
 }
 
 } // namespace gluten
