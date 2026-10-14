@@ -95,7 +95,8 @@ std::string nextBuildId() {
   return std::to_string(id++);
 }
 
-// A table and the pool it is allocated from. 'table' is released first.
+// A table and the pool it is allocated from. Members are destroyed in reverse
+// order, so 'table' returns its memory before 'pool' goes.
 struct TableWithPool {
   std::shared_ptr<memory::MemoryPool> pool;
   std::shared_ptr<exec::BaseHashTable> table;
@@ -240,14 +241,20 @@ std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
     entry->table->setAllowDuplicates(false);
   }
 
-  // The cache entry, which owns the table's pool, can be dropped while the
-  // table is still in use, so the table keeps its pool alive itself.
+  // HashBuild allocated the table from 'entry->tablePool', but cached it as a
+  // plain pointer that does not keep that pool alive. Probe tasks copy that
+  // pointer out of the entry and can outlive both the entry and the returned
+  // builder, e.g. when a task fails while Java releases the broadcast table.
+  // The pool would then go first and the table would free into a dead pool.
+  //
+  // So replace the cached pointer with one built by the shared_ptr aliasing
+  // constructor: it points to the table but shares ownership of a
+  // TableWithPool, so every copy keeps both the table and its pool alive. Velox
+  // does the same for cached Nimble tablets, see ReaderBase.cpp.
   auto tableWithPool = std::make_shared<TableWithPool>(TableWithPool{entry->tablePool, entry->table});
-  auto builder = HashTableBuilder::wrap(
-      std::shared_ptr<exec::BaseHashTable>(tableWithPool, tableWithPool->table.get()),
-      entry->hasNullKeys,
-      vectorPool,
-      std::move(queryCtx));
+  entry->table = std::shared_ptr<exec::BaseHashTable>(tableWithPool, tableWithPool->table.get());
+
+  auto builder = HashTableBuilder::wrap(entry->table, entry->hasNullKeys, vectorPool, std::move(queryCtx));
   builder->setHashTableMemoryUsage(entry->tablePool->usedBytes());
   return builder;
 }

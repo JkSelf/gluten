@@ -206,6 +206,31 @@ TEST_P(HashTableTaskBuilderTest, releasingTableDropsCacheEntry) {
   EXPECT_FALSE(cache->exist(key));
 }
 
+// A probe task takes the table from the cache and can outlive the cache entry
+// and the returned builder, e.g. when the task fails while the broadcast table
+// is released. The table it holds must keep its memory pool alive.
+TEST_P(HashTableTaskBuilderTest, cachedTableOutlivesBuilder) {
+  const auto& c = GetParam();
+  auto* cache = HashTableCache::instance();
+  const auto key = "outlive_" + c.name;
+  auto hashTable = build(c, key, makeBuildVectors(c.nullBuildKeys));
+
+  ContinueFuture future = ContinueFuture::makeEmpty();
+  auto probeQueryCtx = core::QueryCtx::create();
+  auto entry = cache->get(key, "probe_task", probeQueryCtx.get(), &future);
+  ASSERT_FALSE(future.valid());
+  auto probeTable = entry->table;
+  std::weak_ptr<memory::MemoryPool> tablePool = entry->tablePool;
+  entry.reset();
+
+  hashTable.reset();
+  EXPECT_FALSE(cache->exist(key));
+  EXPECT_FALSE(tablePool.expired());
+  EXPECT_NE(probeTable->rows(), nullptr);
+  probeTable.reset();
+  EXPECT_TRUE(tablePool.expired());
+}
+
 // The driver-side build serializes the table and executors deserialize it.
 TEST_P(HashTableTaskBuilderTest, serializeRoundTrip) {
   const auto& c = GetParam();
