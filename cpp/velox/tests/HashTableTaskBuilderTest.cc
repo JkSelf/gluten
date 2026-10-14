@@ -15,6 +15,7 @@
  * limitations under the License.
  */
 
+#include <folly/init/Init.h>
 #include <gtest/gtest.h>
 
 #include "jni/JniHashTable.h"
@@ -272,3 +273,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 } // namespace
 } // namespace gluten
+
+// folly::init() registers folly singletons, e.g. the Timekeeper that
+// AssertQueryBuilder waits with. Without it Linux builds abort.
+int main(int argc, char** argv) {
+  testing::InitGoogleTest(&argc, argv);
+  folly::init(&argc, &argv, false);
+  return RUN_ALL_TESTS();
+}
