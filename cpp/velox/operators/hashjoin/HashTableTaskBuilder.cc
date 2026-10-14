@@ -28,26 +28,13 @@ using namespace facebook::velox;
 namespace gluten {
 namespace {
 
-// Output type of the fake join. The probe side is empty, so the output is never
-// produced; it only has to be valid for the join type.
-RowTypePtr fakeJoinOutputType(core::JoinType joinType, const RowTypePtr& probeType, const RowTypePtr& buildType) {
-  const auto& firstBuildName = buildType->nameOf(0);
-  const auto& firstBuildType = buildType->childAt(0);
-  switch (joinType) {
-    case core::JoinType::kLeftSemiProject: {
-      auto names = probeType->names();
-      auto types = probeType->children();
-      names.emplace_back("__fake_match");
-      types.emplace_back(BOOLEAN());
-      return ROW(std::move(names), std::move(types));
-    }
-    case core::JoinType::kRightSemiFilter:
-      return ROW({firstBuildName}, {firstBuildType});
-    case core::JoinType::kRightSemiProject:
-      return ROW({firstBuildName, "__fake_match"}, {firstBuildType, BOOLEAN()});
-    default:
-      return probeType;
+// Output type of the fake join. The probe side is empty, so the join outputs
+// nothing and needs no columns, except the match column of a semi project join.
+RowTypePtr fakeJoinOutputType(core::JoinType joinType) {
+  if (core::isLeftSemiProjectJoin(joinType) || core::isRightSemiProjectJoin(joinType)) {
+    return ROW({"__fake_match"}, {BOOLEAN()});
   }
+  return ROW({}, {});
 }
 
 // A stand-in for the join filter with the properties HashBuild looks at, see
@@ -172,7 +159,7 @@ std::shared_ptr<HashTableBuilder> buildHashTableWithTask(
                       .filter(makePlaceholderFilter(spec))
                       .left(probe)
                       .right(build)
-                      .outputType(fakeJoinOutputType(spec.joinType, probeType, spec.buildType))
+                      .outputType(fakeJoinOutputType(spec.joinType))
                       .nullAware(spec.nullAware)
                       .useHashTableCache(true)
                       .cacheKey(cacheKey)

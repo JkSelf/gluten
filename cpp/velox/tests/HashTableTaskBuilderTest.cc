@@ -143,12 +143,24 @@ class HashTableTaskBuilderTest : public exec::test::OperatorTestBase, public tes
                   {makeFlatVector<int32_t>(std::vector<int32_t>{}), makeFlatVector<int64_t>(std::vector<int64_t>{})})}
             : buildVectors);
     RowTypePtr outputType;
-    if (c.joinType == core::JoinType::kInner || c.joinType == core::JoinType::kLeft) {
-      outputType = ROW({"t_k", "t_v", "u_k", "u_v"}, {INTEGER(), BIGINT(), INTEGER(), BIGINT()});
-    } else if (c.joinType == core::JoinType::kLeftSemiProject) {
-      outputType = ROW({"t_k", "t_v", "match"}, {INTEGER(), BIGINT(), BOOLEAN()});
-    } else {
-      outputType = ROW({"t_k", "t_v"}, {INTEGER(), BIGINT()});
+    switch (c.joinType) {
+      case core::JoinType::kInner:
+      case core::JoinType::kLeft:
+      case core::JoinType::kRight:
+      case core::JoinType::kFull:
+        outputType = ROW({"t_k", "t_v", "u_k", "u_v"}, {INTEGER(), BIGINT(), INTEGER(), BIGINT()});
+        break;
+      case core::JoinType::kLeftSemiProject:
+        outputType = ROW({"t_k", "t_v", "match"}, {INTEGER(), BIGINT(), BOOLEAN()});
+        break;
+      case core::JoinType::kRightSemiFilter:
+        outputType = ROW({"u_k", "u_v"}, {INTEGER(), BIGINT()});
+        break;
+      case core::JoinType::kRightSemiProject:
+        outputType = ROW({"u_k", "u_v", "match"}, {INTEGER(), BIGINT(), BOOLEAN()});
+        break;
+      default:
+        outputType = ROW({"t_k", "t_v"}, {INTEGER(), BIGINT()});
     }
     auto joinNode = core::HashJoinNode::Builder()
                         .id("2")
@@ -278,6 +290,14 @@ INSTANTIATE_TEST_SUITE_P(
         JoinCase{"innerFilter", core::JoinType::kInner, false, Filter::kNullIntolerant},
         JoinCase{"leftParallel", core::JoinType::kLeft, false, Filter::kNone, true, 4},
         JoinCase{"leftFilter", core::JoinType::kLeft, false, Filter::kNullIntolerant, true},
+        JoinCase{"right", core::JoinType::kRight, false, Filter::kNone, true},
+        JoinCase{"rightFilterParallel", core::JoinType::kRight, false, Filter::kNullIntolerant, true, 4},
+        JoinCase{"full", core::JoinType::kFull, false, Filter::kNone, true},
+        JoinCase{"fullParallel", core::JoinType::kFull, false, Filter::kNone, true, 4},
+        JoinCase{"rightSemi", core::JoinType::kRightSemiFilter, false, Filter::kNone, true},
+        JoinCase{"rightSemiFilterParallel", core::JoinType::kRightSemiFilter, false, Filter::kNullIntolerant, true, 4},
+        JoinCase{"rightSemiProject", core::JoinType::kRightSemiProject, false, Filter::kNone, true},
+        JoinCase{"rightSemiProjectParallel", core::JoinType::kRightSemiProject, false, Filter::kNone, true, 4},
         JoinCase{"leftSemi", core::JoinType::kLeftSemiFilter},
         JoinCase{"leftSemiParallel", core::JoinType::kLeftSemiFilter, false, Filter::kNone, true, 4},
         JoinCase{"leftSemiFilterParallel", core::JoinType::kLeftSemiFilter, false, Filter::kNullIntolerant, false, 4},
